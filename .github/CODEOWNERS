@@ -1,0 +1,63 @@
+#### This code owners file is by no means complete
+# W.I.P: Gotta do images, docs, and people from MrRedstonia and down
+
+# Redundancy check
+* @JeremyGamer13
+# These are user contributed so they shouldn't really be owned by anyone in particular by default.
+/src/lib/extensions.js
+/src/lib/Documentation
+/static/images
+/static/extensions
+
+/README.md @PenguinMod
+
+## == EXTENSIONS == ##
+
+# = Miyo Sho (0znzw + Ashime)
+/static/0znzwImageBlocks @yuri-kiss
+/static/extensions/Ashime @yuri-kiss
+/static/extensions/0znzw @yuri-kiss
+/static/images/0znzw @yuri-kiss
+
+# = Anonymous_cat1
+/static/extensions/Anonymous_cat1/ @Anonymous-cat1
+
+# = CodeFoxy
+/static/extensions/Codefoxy/ @CodeFoxy
+
+# = DogeisCut
+/static/extensions/DogeisCut/ @DogeisCut
+
+# = Fruits555000
+/static/extensions/Fruits555000/ @Fruits555000
+
+# = Gen1x
+/static/extensions/Gen1x/ @Gen1xLol
+
+# = Ikelene
+/static/extensions/Ikelene/ @Ikelene
+
+# = JeremyGamer13
+/static/extensions/JeremyGamer13/ @JeremyGamer13
+
+# = LilyMakesThings
+/static/extensions/Lily/ @LilyMakesThings
+
+# = LordCat0
+/static/extensions/LordCat0/ @LordCat0
+
+# = MikeDev101
+/static/extensions/MikeDev101/ @MikeDev101
+
+# = Monochromasity
+/static/extensions/Monochromasity/ @Monochromasity
+
+# Just majour contributors for this.
+/static/extensions/TheShovel/extexp.js @TheShovel @yuri-kiss
+
+# Extra - These are just some extra files for redundancy, based on majour contributors.
+/README.md @JeremyGamer13 @SharkPool-SP
+/example_block.png @JeremyGamer13
+/package.json @JeremyGamer13
+/svelte.config.js @JeremyGamer13
+/vite.config.js @JeremyGamer13
