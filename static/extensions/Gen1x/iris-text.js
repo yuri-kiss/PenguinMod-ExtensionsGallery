@@ -20,145 +20,224 @@ Enjoy!! :D
     const vm = Scratch.vm;
     const runtime = vm.runtime;
 
-    const STATE_KEY = 'irisText';
-    const DEFAULT_TEXT = 'Hello world!';
+    let rendererMaxTextureSize = 0;
+    let rendererMaxTextureGl = null;
 
-    const WORKER_DISCLAIMER_FLAG_KEY = 'irisText_seenWorkerDisclaimer';
-    const BROWSER_DISCLAIMER_FLAG_KEY = 'irisText_seenBrowserDisclaimer';
+    function refreshRendererMaxTextureSize() {
+        const gl = runtime.renderer && runtime.renderer.gl;
+        if (!gl || gl === rendererMaxTextureGl || gl.isContextLost()) return rendererMaxTextureSize;
+        rendererMaxTextureGl = gl;
+        rendererMaxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0;
+        return rendererMaxTextureSize;
+    }
+
+    refreshRendererMaxTextureSize();
+
+    const stateKey = 'irisText';
+    const defaultText = 'Hello world!';
+
+    const perf = {
+        enabled: false,
+        stats: new Map()
+    };
+
+    function perfStart() {
+        return perf.enabled ? performance.now() : 0;
+    }
+
+    function perfRecord(name, elapsed) {
+        if (!perf.enabled) return;
+        let entry = perf.stats.get(name);
+        if (!entry) {
+            entry = {
+                count: 0,
+                total: 0,
+                max: 0
+            };
+            perf.stats.set(name, entry);
+        }
+        entry.count++;
+        entry.total += elapsed;
+        if (elapsed > entry.max) entry.max = elapsed;
+    }
+
+    function perfEnd(name, startTime) {
+        if (!startTime) return;
+        perfRecord(name, performance.now() - startTime);
+    }
+
+    function perfReport() {
+        const report = {};
+        for (const [name, entry] of perf.stats) {
+            report[name] = {
+                count: entry.count,
+                totalMs: +entry.total.toFixed(2),
+                avgMs: +(entry.total / entry.count).toFixed(3),
+                maxMs: +entry.max.toFixed(2)
+            };
+        }
+        return report;
+    }
+
+    function runWhenIdle(callback, timeout) {
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(callback, {
+                timeout
+            });
+        } else {
+            setTimeout(callback, 60);
+        }
+    }
 
     const blockIconURI = 'data:image/png;base64,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';
 
-    const warningBlockIconURI = 'data:image/png;base64,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';
+    const colorPrimary = '#17B9C7';
+    const colorSecondary = '#149DA9';
+    const colorTertiary = '#0F808A';
 
-    const COLOR_PRIMARY = '#17B9C7';
-    const COLOR_SECONDARY = '#149DA9';
-    const COLOR_TERTIARY = '#0F808A';
+    const wipeDirectionBottomUp = 'bottom-up';
+    const wipeDirectionLeftRight = 'left-right';
+    const wipeDirectionUpDown = 'up-down';
+    const wipeDirectionRightLeft = 'right-left';
 
-    const WIPE_DIRECTION_BOTTOM_UP = 'bottom-up';
-    const WIPE_DIRECTION_LEFT_RIGHT = 'left-right';
-    const WIPE_DIRECTION_UP_DOWN = 'up-down';
-    const WIPE_DIRECTION_RIGHT_LEFT = 'right-left';
+    function clampPercent(value) {
+        return Math.max(0, Math.min(100, value));
+    }
 
-    const GRADIENT_TYPE_LINEAR = 'linear';
-    const GRADIENT_TYPE_RADIAL = 'radial';
-    const GRADIENT_TYPE_CONIC = 'conic';
+    function clampPercentToUnit(value) {
+        return clampPercent(value) / 100;
+    }
+
+    const gradientTypeLinear = 'linear';
+    const gradientTypeRadial = 'radial';
+    const gradientTypeConic = 'conic';
 
     /* stolen from PM's animated text extension code :3 */
-    const SANS_SERIF_ID = 'Sans Serif';
-    const SERIF_ID = 'Serif';
-    const HANDWRITING_ID = 'Handwriting';
-    const MARKER_ID = 'Marker';
-    const CURLY_ID = 'Curly';
-    const PIXEL_ID = 'Pixel';
+    const sansSerifId = 'Sans Serif';
+    const serifId = 'Serif';
+    const handwritingId = 'Handwriting';
+    const markerId = 'Marker';
+    const curlyId = 'Curly';
+    const pixelId = 'Pixel';
 
-    const PLAYFUL_ID = 'Playful';
-    const BUBBLY_ID = 'Bubbly';
-    const BITSANDBYTES_ID = 'Bits and Bytes';
-    const TECHNOLOGICAL_ID = 'Technological';
-    const ARCADE_ID = 'Arcade';
-    const ARCHIVO_ID = 'Archivo';
-    const ARCHIVOBLACK_ID = 'Archivo Black';
-    const SCRATCH_ID = 'Scratch';
+    const playfulId = 'Playful';
+    const bubblyId = 'Bubbly';
+    const bitsAndBytesId = 'Bits and Bytes';
+    const technologicalId = 'Technological';
+    const arcadeId = 'Arcade';
+    const archivoId = 'Archivo';
+    const archivoBlackId = 'Archivo Black';
+    const scratchId = 'Scratch';
 
-    const RANDOM_ID = 'Random';
+    const randomId = 'Random';
 
-    const FONT_IDS = [
-        SANS_SERIF_ID, SERIF_ID, HANDWRITING_ID, MARKER_ID, CURLY_ID, PIXEL_ID,
-        PLAYFUL_ID, BUBBLY_ID, ARCADE_ID, BITSANDBYTES_ID, TECHNOLOGICAL_ID,
-        SCRATCH_ID, ARCHIVO_ID, ARCHIVOBLACK_ID
+    const fontIds = [
+        sansSerifId, serifId, handwritingId, markerId, curlyId, pixelId,
+        playfulId, bubblyId, arcadeId, bitsAndBytesId, technologicalId,
+        scratchId, archivoId, archivoBlackId
     ];
 
     // in case the rendering screws up:
-    const FONT_FALLBACKS = {
-        [SANS_SERIF_ID]: 'sans-serif',
-        [SERIF_ID]: 'serif',
-        [HANDWRITING_ID]: 'cursive',
-        [MARKER_ID]: 'fantasy',
-        [CURLY_ID]: 'cursive',
-        [PIXEL_ID]: 'monospace',
-        [PLAYFUL_ID]: 'cursive',
-        [BUBBLY_ID]: 'cursive',
-        [BITSANDBYTES_ID]: 'monospace',
-        [TECHNOLOGICAL_ID]: 'sans-serif',
-        [ARCADE_ID]: 'monospace',
-        [ARCHIVO_ID]: 'sans-serif',
-        [ARCHIVOBLACK_ID]: 'sans-serif',
-        [SCRATCH_ID]: 'sans-serif'
+    const fontFallbacks = {
+        [sansSerifId]: 'sans-serif',
+        [serifId]: 'serif',
+        [handwritingId]: 'cursive',
+        [markerId]: 'fantasy',
+        [curlyId]: 'cursive',
+        [pixelId]: 'monospace',
+        [playfulId]: 'cursive',
+        [bubblyId]: 'cursive',
+        [bitsAndBytesId]: 'monospace',
+        [technologicalId]: 'sans-serif',
+        [arcadeId]: 'monospace',
+        [archivoId]: 'sans-serif',
+        [archivoBlackId]: 'sans-serif',
+        [scratchId]: 'sans-serif'
     };
 
+    const emojiFontStack = '"Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"';
+
     function cssFontFamily(fontId) {
-        const fallback = FONT_FALLBACKS[fontId] || 'sans-serif';
-        return `"${fontId}", ${fallback}`;
+        const fallback = fontFallbacks[fontId] || 'sans-serif';
+        return `"${fontId}", ${emojiFontStack}, ${fallback}`;
+    }
+
+    const emojiCharRe = /\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3/u;
+
+    function isEmojiChar(char) {
+        if (!char) return false;
+        emojiCharRe.lastIndex = 0;
+        return emojiCharRe.test(char);
     }
 
     function randomFontOtherThan(currentFont) {
-        const others = FONT_IDS.filter(id => id !== currentFont);
+        const others = fontIds.filter(id => id !== currentFont);
         return others[Math.floor(Math.random() * others.length)];
     }
 
     function buildFontMenuItems() {
         const builtIns = [{
                 text: 'Sans Serif',
-                value: SANS_SERIF_ID
+                value: sansSerifId
             },
             {
                 text: 'Serif',
-                value: SERIF_ID
+                value: serifId
             },
             {
                 text: 'Handwriting',
-                value: HANDWRITING_ID
+                value: handwritingId
             },
             {
                 text: 'Marker',
-                value: MARKER_ID
+                value: markerId
             },
             {
                 text: 'Curly',
-                value: CURLY_ID
+                value: curlyId
             },
             {
                 text: 'Pixel',
-                value: PIXEL_ID
+                value: pixelId
             },
             {
                 text: 'Playful',
-                value: PLAYFUL_ID
+                value: playfulId
             },
             {
                 text: 'Bubbly',
-                value: BUBBLY_ID
+                value: bubblyId
             },
             {
                 text: 'Arcade',
-                value: ARCADE_ID
+                value: arcadeId
             },
             {
                 text: 'Bits and Bytes',
-                value: BITSANDBYTES_ID
+                value: bitsAndBytesId
             },
             {
                 text: 'Technological',
-                value: TECHNOLOGICAL_ID
+                value: technologicalId
             },
             {
                 text: 'Scratch',
-                value: SCRATCH_ID
+                value: scratchId
             },
             {
                 text: 'Archivo',
-                value: ARCHIVO_ID
+                value: archivoId
             },
             {
                 text: 'Archivo Black',
-                value: ARCHIVOBLACK_ID
+                value: archivoBlackId
             }
         ];
 
         const customFonts = [];
         Array.from(document.fonts).forEach(face => {
             const family = face.family.replace(/^["']|["']$/g, '');
-            if (!FONT_IDS.includes(family) && !customFonts.some(f => f.value === family)) {
+            if (!fontIds.includes(family) && !customFonts.some(f => f.value === family)) {
                 customFonts.push({
                     text: family,
                     value: family
@@ -171,21 +250,26 @@ Enjoy!! :D
             ...customFonts,
             {
                 text: 'random font',
-                value: RANDOM_ID
+                value: randomId
             }
         ];
     }
 
-    const KNOWN_TAGS = ['color', 'b', 'i', 'u', 's', 'size', 'font', 'gradient'];
-    const SELF_CLOSING_TAGS = ['wait'];
-    const TAG_RE = /\[(\/?)([a-z0-9_-]+)(?:=([^\]]+))?\]/gi;
-    const TAG_RE_STRIP = /\[(\/?)([a-z0-9_-]+)(?:=([^\]]+))?\]/gi;
+    const knownTags = ['color', 'b', 'i', 'u', 's', 'size', 'font', 'gradient', 'blur', 'shadow', 'border', 'layer', 'effect', 'perspective'];
+    const selfClosingTags = ['wait'];
+    const tagRe = /(?<!\\)\[(\/?)([a-z0-9_-]+)(?:=([^\]]+))?\]/gi;
+    const tagReStrip = /(?<!\\)\[(\/?)([a-z0-9_-]+)(?:=([^\]]+))?\]/gi;
+    const escapedTagRe = /\\(?=[\[\]])/g;
+
+    function unescapeTagEscapes(text) {
+        return text.replace(escapedTagRe, '');
+    }
 
     function normalizeGradientType(value) {
         const t = (value || '').toString().toLowerCase().trim();
-        if (t === GRADIENT_TYPE_RADIAL) return GRADIENT_TYPE_RADIAL;
-        if (t === GRADIENT_TYPE_CONIC) return GRADIENT_TYPE_CONIC;
-        return GRADIENT_TYPE_LINEAR;
+        if (t === gradientTypeRadial) return gradientTypeRadial;
+        if (t === gradientTypeConic) return gradientTypeConic;
+        return gradientTypeLinear;
     }
 
     function parseGradientValue(value) {
@@ -198,7 +282,7 @@ Enjoy!! :D
             .map(c => c.trim())
             .filter(c => c.length > 0);
         if (colors.length < 2) return null;
-        const angle = Scratch.Cast.toNumber(anglePart.trim()) || 0;
+        const angle = Scratch.Cast.toNumber(anglePart.trim());
         const type = normalizeGradientType(typePart.trim());
         return {
             colors,
@@ -207,45 +291,220 @@ Enjoy!! :D
         };
     }
 
+    function parseShadowValue(value) {
+        if (!value) return null;
+        const parts = value.split('|');
+        const color = (parts[0] || '').trim();
+        if (!color) return null;
+        const opacity = clampPercent(Scratch.Cast.toNumber(parts.length > 1 ? parts[1] : ''));
+        const blur = Math.max(0, Scratch.Cast.toNumber(parts.length > 2 ? parts[2] : ''));
+        const offsetX = Scratch.Cast.toNumber(parts.length > 3 ? parts[3] : '');
+        const offsetY = Scratch.Cast.toNumber(parts.length > 4 ? parts[4] : '');
+        return {
+            color,
+            opacity,
+            blur,
+            offsetX,
+            offsetY
+        };
+    }
+
+    function parseBorderValue(value) {
+        if (!value) return null;
+        const parts = value.split('|');
+        const color = (parts[0] || '').trim();
+        if (!color) return null;
+        const opacity = clampPercent(Scratch.Cast.toNumber(parts.length > 1 ? parts[1] : ''));
+        const size = Math.max(0, Scratch.Cast.toNumber(parts.length > 2 ? parts[2] : ''));
+        return {
+            color,
+            opacity,
+            size
+        };
+    }
+
+    function parseLayerValue(value, fallback) {
+        if (value === undefined || value === null || String(value).trim() === '') return fallback || 0;
+        const layer = Scratch.Cast.toNumber(value);
+        return Number.isFinite(layer) ? layer : (fallback || 0);
+    }
+
+    function parsePerspectiveValue(value) {
+        if (!value) return null;
+        const parts = value.split('|');
+        if (parts.length !== 4) return null;
+        const values = parts.map(part => Scratch.Cast.toNumber(part));
+        if (!values.every(Number.isFinite)) return null;
+        return {
+            x: values[0],
+            y: values[1],
+            rotation: values[2],
+            scaleStrength: 1 / Math.sqrt(Math.max(0.01, values[3] / 100)) - 1
+        };
+    }
+
+    const effectNames = ['color', 'fisheye', 'whirl', 'pixelate', 'mosaic', 'brightness', 'saturation', 'red', 'green', 'blue', 'opaque'];
+    const effectNameSet = new Set(effectNames);
+    const effectBits = {
+        color: 1,
+        fisheye: 2,
+        whirl: 4,
+        pixelate: 8,
+        mosaic: 16,
+        brightness: 32,
+        saturation: 64,
+        red: 128,
+        green: 256,
+        blue: 512,
+        opaque: 1024
+    };
+    const effectStateCache = new Map();
+    const effectStateCacheLimit = 512;
+
+    function clampRange(value, min, max) {
+        return Math.max(min, Math.min(value, max));
+    }
+
+    function normalizeEffectName(raw) {
+        const name = String(raw === undefined || raw === null ? '' : raw).trim().toLowerCase();
+        return effectNameSet.has(name) ? name : null;
+    }
+
+    function parseEffectValue(value) {
+        if (!value) return null;
+        const parts = value.split('|');
+        const name = normalizeEffectName(parts[0]);
+        if (!name) return null;
+        const amount = Scratch.Cast.toNumber(parts.length > 1 ? parts[1] : '');
+        return {
+            name,
+            amount: Number.isFinite(amount) ? amount : 0
+        };
+    }
+
+    function addEffectAmount(effects, name, amount) {
+        const next = Object.assign({}, effects);
+        next[name] = (next[name] || 0) + amount;
+        return next;
+    }
+
+    function buildEffectState(effects, key) {
+        const read = name => {
+            const amount = effects[name];
+            return Number.isFinite(amount) ? amount : 0;
+        };
+        let mask = 0;
+        for (const name in effectBits) {
+            if (read(name)) mask |= effectBits[name];
+        }
+        return {
+            key,
+            hash: hashString(key),
+            mask,
+            hue: (read('color') / 200) % 1,
+            fisheye: Math.max(0, (read('fisheye') + 100) / 100),
+            whirl: -read('whirl') * Math.PI / 180,
+            pixelate: Math.abs(read('pixelate')) / 10,
+            mosaic: clampRange(Math.round((Math.abs(read('mosaic')) + 10) / 10), 1, 512),
+            brightness: clampRange(read('brightness'), -100, 100) / 100,
+            saturation: read('saturation') / 100 + 1,
+            red: clampRange(read('red'), -100, 100) / 100 * 4 + 1,
+            green: clampRange(read('green'), -100, 100) / 100 * 4 + 1,
+            blue: clampRange(read('blue'), -100, 100) / 100 * 4 + 1,
+            opaque: clampRange(Math.ceil(read('opaque')), 1, 100)
+        };
+    }
+
+    function resolveEffectState(base, override) {
+        if (!base && !override) return null;
+        let merged = base || {};
+        if (override) {
+            merged = Object.assign({}, base);
+            for (const name in override) merged[name] = override[name];
+        }
+        let key = '';
+        for (let i = 0; i < effectNames.length; i++) {
+            const amount = merged[effectNames[i]];
+            if (amount && Number.isFinite(amount)) key += effectNames[i] + ':' + amount + ';';
+        }
+        if (!key) return null;
+        let state = effectStateCache.get(key);
+        if (state === undefined) {
+            state = buildEffectState(merged, key);
+            if (state.mask === 0) state = null;
+            if (effectStateCache.size >= effectStateCacheLimit) effectStateCache.clear();
+            effectStateCache.set(key, state);
+        }
+        return state;
+    }
+
     let gradientSpanIdSeq = 1;
+
+    const graphemeSegmenter = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ?
+        new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+
+    function splitGraphemes(str) {
+        if (!str) return [];
+        if (graphemeSegmenter) {
+            const out = [];
+            for (const seg of graphemeSegmenter.segment(str)) out.push(seg.segment);
+            return out;
+        }
+        return Array.from(str);
+    }
 
     function parseRichText(text, base) {
         const families = new Set([base.font]);
         const stack = [Object.assign({
             customTags: [],
-            gradientOccurrenceIndex: -1
+            gradientOccurrenceIndex: -1,
+            shadow: null,
+            border: null,
+            layer: 0,
+            effects: null,
+            perspectives: []
         }, base)];
         const out = [];
-        TAG_RE.lastIndex = 0;
+        tagRe.lastIndex = 0;
         let i = 0;
         let match;
         let gradientOccurrenceSeq = 0;
-        while ((match = TAG_RE.exec(text)) !== null || i < text.length) {
+        while ((match = tagRe.exec(text)) !== null || i < text.length) {
             const tagStart = match ? match.index : text.length;
-            while (i < tagStart) {
-                const style = stack[stack.length - 1];
-                out.push({
-                    char: text[i],
-                    color: style.color,
-                    bold: style.bold,
-                    italic: style.italic,
-                    underline: style.underline,
-                    strike: style.strike,
-                    size: style.size,
-                    font: style.font,
-                    tags: style.customTags,
-                    gradient: style.gradient,
-                    gradientSpanId: style.gradientSpanId,
-                    gradientOccurrenceIndex: style.gradientOccurrenceIndex
-                });
-                families.add(style.font);
-                i++;
+            if (i < tagStart) {
+                const segment = unescapeTagEscapes(text.slice(i, tagStart));
+                const graphemes = splitGraphemes(segment);
+                for (const g of graphemes) {
+                    const style = stack[stack.length - 1];
+                    out.push({
+                        char: g,
+                        color: style.color,
+                        bold: style.bold,
+                        italic: style.italic,
+                        underline: style.underline,
+                        strike: style.strike,
+                        size: style.size,
+                        font: style.font,
+                        blur: style.blur,
+                        tags: style.customTags,
+                        gradient: style.gradient,
+                        gradientSpanId: style.gradientSpanId,
+                        gradientOccurrenceIndex: style.gradientOccurrenceIndex,
+                        shadow: style.shadow,
+                        border: style.border,
+                        layer: style.layer || 0,
+                        effects: style.effects || null,
+                        perspectives: style.perspectives || []
+                    });
+                    families.add(style.font);
+                }
+                i = tagStart;
             }
             if (!match) break;
             const closing = match[1] === '/';
             const tag = match[2].toLowerCase();
             const value = match[3];
-            if (SELF_CLOSING_TAGS.indexOf(tag) !== -1) {
+            if (selfClosingTags.indexOf(tag) !== -1) {
                 i = match.index + match[0].length;
                 continue;
             }
@@ -261,12 +520,18 @@ Enjoy!! :D
                     strike: prev.strike,
                     size: prev.size,
                     font: prev.font,
+                    blur: prev.blur,
                     customTags: prev.customTags,
                     gradient: prev.gradient,
                     gradientSpanId: prev.gradientSpanId,
-                    gradientOccurrenceIndex: prev.gradientOccurrenceIndex
+                    gradientOccurrenceIndex: prev.gradientOccurrenceIndex,
+                    shadow: prev.shadow,
+                    border: prev.border,
+                    layer: prev.layer || 0,
+                    effects: prev.effects || null,
+                    perspectives: prev.perspectives || []
                 };
-                if (KNOWN_TAGS.indexOf(tag) !== -1) {
+                if (knownTags.indexOf(tag) !== -1) {
                     switch (tag) {
                         case 'color':
                             top.color = value || top.color;
@@ -287,7 +552,7 @@ Enjoy!! :D
                             top.size = Scratch.Cast.toNumber(value) || top.size;
                             break;
                         case 'font':
-                            top.font = value === RANDOM_ID ?
+                            top.font = value === randomId ?
                                 randomFontOtherThan(prev.font) :
                                 (value || top.font);
                             break;
@@ -296,6 +561,32 @@ Enjoy!! :D
                             top.gradient = parsed || top.gradient;
                             top.gradientSpanId = parsed ? gradientSpanIdSeq++ : top.gradientSpanId;
                             top.gradientOccurrenceIndex = parsed ? gradientOccurrenceSeq++ : top.gradientOccurrenceIndex;
+                            break;
+                        }
+                        case 'blur':
+                            top.blur = clampPercent(Scratch.Cast.toNumber(value));
+                            break;
+                        case 'shadow': {
+                            const parsedShadow = parseShadowValue(value);
+                            top.shadow = parsedShadow || top.shadow;
+                            break;
+                        }
+                        case 'border': {
+                            const parsedBorder = parseBorderValue(value);
+                            top.border = parsedBorder || top.border;
+                            break;
+                        }
+                        case 'layer':
+                            top.layer = parseLayerValue(value, top.layer);
+                            break;
+                        case 'effect': {
+                            const parsedEffect = parseEffectValue(value);
+                            if (parsedEffect) top.effects = addEffectAmount(top.effects, parsedEffect.name, parsedEffect.amount);
+                            break;
+                        }
+                        case 'perspective': {
+                            const parsedPerspective = parsePerspectiveValue(value);
+                            if (parsedPerspective) top.perspectives = top.perspectives.concat([parsedPerspective]);
                             break;
                         }
                     }
@@ -319,6 +610,7 @@ Enjoy!! :D
             strike: style.strike,
             size: style.size,
             font: style.font,
+            blur: style.blur,
             tags: Array.isArray(style.tags) ? style.tags.slice() : []
         };
     }
@@ -332,6 +624,7 @@ Enjoy!! :D
         if (snapshot.strike !== style.strike) return false;
         if (snapshot.size !== style.size) return false;
         if (snapshot.font !== style.font) return false;
+        if (snapshot.blur !== style.blur) return false;
         const tags = Array.isArray(style.tags) ? style.tags : null;
         const snapTags = snapshot.tags;
         if (!tags) return snapTags.length === 0;
@@ -355,6 +648,7 @@ Enjoy!! :D
             char.strike = override.strike;
             char.size = override.size;
             char.font = override.font;
+            char.blur = override.blur;
             if (families) families.add(override.font);
         }
     }
@@ -369,6 +663,7 @@ Enjoy!! :D
         if (typeof value.strike === 'boolean') style.strike = value.strike;
         if (Number.isFinite(value.size)) style.size = Math.max(1, value.size);
         if (typeof value.font === 'string') style.font = value.font;
+        if (Number.isFinite(value.blur)) style.blur = clampPercent(value.blur);
         if (Array.isArray(value.tags) && value.tags.every(tag => typeof tag === 'string')) {
             style.tags = value.tags.slice();
         }
@@ -380,8 +675,8 @@ Enjoy!! :D
 
     function stripMarkup(text) {
         if (text === stripMarkupCacheKey) return stripMarkupCacheValue;
-        TAG_RE_STRIP.lastIndex = 0;
-        const result = text.replace(TAG_RE_STRIP, '');
+        tagReStrip.lastIndex = 0;
+        const result = unescapeTagEscapes(text.replace(tagReStrip, ''));
         stripMarkupCacheKey = text;
         stripMarkupCacheValue = result;
         return result;
@@ -395,30 +690,35 @@ Enjoy!! :D
             underline: false,
             strike: false,
             size: 32,
-            font: HANDWRITING_ID,
+            font: handwritingId,
+            blur: 0,
             customTags: [],
             gradient: null,
-            gradientSpanId: null
+            gradientSpanId: null,
+            shadow: null,
+            border: null,
+            layer: 0,
+            effects: null
         };
     }
 
-    const WAIT_RE = /\[wait=([0-9]*\.?[0-9]+)\]/gi;
+    const waitRe = /(?<!\\)\[wait=([0-9]*\.?[0-9]+)\]/gi;
 
     let splitWaitStagesCacheKey = null;
     let splitWaitStagesCacheValue = null;
 
     function splitWaitStages(text) {
         if (text === splitWaitStagesCacheKey) return splitWaitStagesCacheValue;
-        WAIT_RE.lastIndex = 0;
+        waitRe.lastIndex = 0;
         const stages = [];
         let i = 0;
         let match;
         let textSoFar = '';
-        while ((match = WAIT_RE.exec(text)) !== null) {
+        while ((match = waitRe.exec(text)) !== null) {
             textSoFar += text.slice(i, match.index);
             stages.push({
                 text: textSoFar,
-                waitAfter: Math.max(0, Scratch.Cast.toNumber(match[1]) || 0)
+                waitAfter: Math.max(0, Scratch.Cast.toNumber(match[1]))
             });
             i = match.index + match[0].length;
         }
@@ -440,6 +740,10 @@ Enjoy!! :D
             baseStyle: defaultBaseStyle(),
             align: 'center',
             smoothing: true,
+            cullOffscreen: true,
+            cullRegion: null,
+            cullBounds: null,
+            emojiMode: 1,
             growDownwardOnly: false,
             letterSpacing: 0,
             lineSpacing: 1.2,
@@ -467,6 +771,11 @@ Enjoy!! :D
                 radius: 8,
                 padding: 8
             },
+            textBackgroundBorder: {
+                color: '#000000',
+                size: 0,
+                roundness: 100
+            },
             textBorder: {
                 enabled: false,
                 color: '#000000',
@@ -475,6 +784,7 @@ Enjoy!! :D
             },
             charOverrides: {},
             charOverridesVersion: 0,
+            charEffects: {},
             charTransformsVersion: 0,
             resetCharTransformsOnText: true,
             charStyleOverrides: {},
@@ -544,21 +854,24 @@ Enjoy!! :D
     }
 
     function getState(target) {
-        let state = target.getCustomState(STATE_KEY);
+        let state = target.getCustomState(stateKey);
         if (!state) {
             state = defaultState();
-            target.setCustomState(STATE_KEY, state);
+            target.setCustomState(stateKey, state);
         } else if (!state.iiMigrated) {
             const defaults = defaultState();
             state.textShadow = Object.assign(defaults.textShadow, state.textShadow || {});
             state.textBackground = Object.assign(defaults.textBackground, state.textBackground || {});
+            state.textBackgroundBorder = Object.assign(defaults.textBackgroundBorder, state.textBackgroundBorder || {});
             state.textBorder = Object.assign(defaults.textBorder, state.textBorder || {});
             state.typingSpeeds = Object.assign(defaults.typingSpeeds, state.typingSpeeds || {});
             state.customTypingSpeeds = Object.assign({}, state.customTypingSpeeds || {});
-            if (typeof state.smoothing !== 'boolean') state.smoothing = defaults.smoothing;
-            if (typeof state.growDownwardOnly !== 'boolean') state.growDownwardOnly = defaults.growDownwardOnly;
+            state.smoothing = state.smoothing === undefined ? defaults.smoothing : Scratch.Cast.toBoolean(state.smoothing);
+            state.cullOffscreen = state.cullOffscreen === undefined ? defaults.cullOffscreen : Scratch.Cast.toBoolean(state.cullOffscreen);
+            if (state.emojiMode !== 1 && state.emojiMode !== 2) state.emojiMode = defaults.emojiMode;
+            state.growDownwardOnly = state.growDownwardOnly === undefined ? defaults.growDownwardOnly : Scratch.Cast.toBoolean(state.growDownwardOnly);
             state.charStyleOverrides = Object.assign({}, state.charStyleOverrides || {});
-            if (typeof state.resetCharTransformsOnText !== 'boolean') state.resetCharTransformsOnText = defaults.resetCharTransformsOnText;
+            state.resetCharTransformsOnText = state.resetCharTransformsOnText === undefined ? defaults.resetCharTransformsOnText : Scratch.Cast.toBoolean(state.resetCharTransformsOnText);
             if (typeof state.charStyleOverridesVersion !== 'number') state.charStyleOverridesVersion = 0;
             if (typeof state.charTransformsVersion !== 'number') state.charTransformsVersion = 0;
             if (typeof state.paintOpsTransformsVersion !== 'number') state.paintOpsTransformsVersion = 0;
@@ -569,13 +882,13 @@ Enjoy!! :D
         return state;
     }
 
-    const TYPING_PUNCTUATION = '.,!?;:…';
-    const TYPING_SYMBOLS = '@#$%^&*+=<>/\\|~`_-()[]{}';
+    const typingPunctuation = '.,!?;:…';
+    const typingSymbols = '@#$%^&*+=<>/\\|~`_-()[]{}';
 
     function typingGroupForCharacter(char) {
         if (/^[0-9]$/.test(char)) return 'numbers';
-        if (TYPING_PUNCTUATION.includes(char)) return 'punctuation';
-        if (TYPING_SYMBOLS.includes(char)) return 'symbols';
+        if (typingPunctuation.includes(char)) return 'punctuation';
+        if (typingSymbols.includes(char)) return 'symbols';
         return 'default';
     }
 
@@ -586,12 +899,12 @@ Enjoy!! :D
 
     function splitTypingSteps(text) {
         const steps = [];
-        TAG_RE.lastIndex = 0;
+        tagRe.lastIndex = 0;
         let lastIndex = 0;
         let match;
 
         const addCharacters = value => {
-            for (const char of Array.from(value)) {
+            for (const char of splitGraphemes(value)) {
                 steps.push({
                     content: char,
                     char
@@ -599,16 +912,16 @@ Enjoy!! :D
             }
         };
 
-        while ((match = TAG_RE.exec(text)) !== null) {
+        while ((match = tagRe.exec(text)) !== null) {
             addCharacters(text.slice(lastIndex, match.index));
             const tag = match[2].toLowerCase();
             const value = match[3];
-            if (SELF_CLOSING_TAGS.indexOf(tag) !== -1) {
+            if (selfClosingTags.indexOf(tag) !== -1) {
                 if (tag === 'wait') {
                     steps.push({
                         content: '',
                         char: null,
-                        wait: Math.max(0, Scratch.Cast.toNumber(value) || 0)
+                        wait: Math.max(0, Scratch.Cast.toNumber(value))
                     });
                 } else {
                     steps.push({
@@ -642,6 +955,8 @@ Enjoy!! :D
             },
             align: state.align,
             smoothing: state.smoothing,
+            cullOffscreen: state.cullOffscreen,
+            emojiMode: state.emojiMode,
             growDownwardOnly: state.growDownwardOnly,
             resetCharTransformsOnText: state.resetCharTransformsOnText,
             letterSpacing: state.letterSpacing,
@@ -652,6 +967,7 @@ Enjoy!! :D
             maxHeight: state.maxHeight,
             textShadow: Object.assign({}, state.textShadow),
             textBackground: Object.assign({}, state.textBackground),
+            textBackgroundBorder: Object.assign({}, state.textBackgroundBorder),
             textBorder: Object.assign({}, state.textBorder)
         });
     }
@@ -672,9 +988,11 @@ Enjoy!! :D
         if (settings.align === 'left' || settings.align === 'center' || settings.align === 'right' || settings.align === 'justify') {
             state.align = settings.align;
         }
-        if (typeof settings.smoothing === 'boolean') state.smoothing = settings.smoothing;
-        if (typeof settings.growDownwardOnly === 'boolean') state.growDownwardOnly = settings.growDownwardOnly;
-        if (typeof settings.resetCharTransformsOnText === 'boolean') state.resetCharTransformsOnText = settings.resetCharTransformsOnText;
+        if (settings.smoothing !== undefined) state.smoothing = Scratch.Cast.toBoolean(settings.smoothing);
+        if (settings.cullOffscreen !== undefined) state.cullOffscreen = Scratch.Cast.toBoolean(settings.cullOffscreen);
+        if (settings.emojiMode === 1 || settings.emojiMode === 2) state.emojiMode = settings.emojiMode;
+        if (settings.growDownwardOnly !== undefined) state.growDownwardOnly = Scratch.Cast.toBoolean(settings.growDownwardOnly);
+        if (settings.resetCharTransformsOnText !== undefined) state.resetCharTransformsOnText = Scratch.Cast.toBoolean(settings.resetCharTransformsOnText);
         if (Number.isFinite(settings.letterSpacing)) state.letterSpacing = settings.letterSpacing;
         if (Number.isFinite(settings.lineSpacing)) state.lineSpacing = Math.max(0, settings.lineSpacing);
         if (settings.typingSpeeds && typeof settings.typingSpeeds === 'object' && !Array.isArray(settings.typingSpeeds)) {
@@ -710,6 +1028,7 @@ Enjoy!! :D
 
         copySettings(settings.textShadow, state.textShadow, ['enabled', 'color', 'opacity', 'blur', 'offsetX', 'offsetY']);
         copySettings(settings.textBackground, state.textBackground, ['enabled', 'color', 'opacity', 'radius', 'padding']);
+        copySettings(settings.textBackgroundBorder, state.textBackgroundBorder, ['color', 'size', 'roundness']);
         copySettings(settings.textBorder, state.textBorder, ['enabled', 'color', 'opacity', 'size']);
         state.shapeKey = null;
         state.layoutKey = null;
@@ -736,10 +1055,14 @@ Enjoy!! :D
     }
 
     function resetCharacterTransformsState(state) {
-        if (!Object.keys(state.charOverrides).length) return;
+        const hasEffects = !!state.charEffects && Object.keys(state.charEffects).length > 0;
+        if (!Object.keys(state.charOverrides).length && !hasEffects) return;
         state.charOverrides = {};
+        state.charEffects = {};
         state.charOverridesVersion++;
         state.charTransformsVersion++;
+        state.paintDirty = true;
+        state.paintFingerprint = null;
     }
 
     function setCharMaskForIndex(state, index, mask) {
@@ -756,6 +1079,76 @@ Enjoy!! :D
         return true;
     }
 
+    function emptyAABB() {
+        return { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+    }
+
+    function aabbIsFinite(box) {
+        return Number.isFinite(box.minX) && Number.isFinite(box.maxX) &&
+            Number.isFinite(box.minY) && Number.isFinite(box.maxY);
+    }
+
+    function expandAABBToPoint(box, x, y) {
+        box.minX = Math.min(box.minX, x);
+        box.maxX = Math.max(box.maxX, x);
+        box.minY = Math.min(box.minY, y);
+        box.maxY = Math.max(box.maxY, y);
+        return box;
+    }
+
+    function pointsToAABB(points) {
+        const box = emptyAABB();
+        for (const [x, y] of points) expandAABBToPoint(box, x, y);
+        return box;
+    }
+
+    function charLocalAABB(state, startIdx, endIdx) {
+        const box = emptyAABB();
+        let found = false;
+        for (let idx = startIdx; idx <= endIdx; idx++) {
+            const charBox = state.charBoxes[idx];
+            if (!charBox) continue;
+            found = true;
+            const halfW = charBox.width / 2;
+            const halfH = charBox.height / 2;
+            expandAABBToPoint(box, charBox.x - halfW, charBox.y - halfH);
+            expandAABBToPoint(box, charBox.x + halfW, charBox.y + halfH);
+        }
+        if (!found) return null;
+        return box;
+    }
+
+    function localAABBToStageAABB(local, target) {
+        const scale = (Number.isFinite(target.size) ? target.size : 100) / 100;
+        const corners = [
+            [local.minX * scale, local.minY * scale],
+            [local.maxX * scale, local.minY * scale],
+            [local.maxX * scale, local.maxY * scale],
+            [local.minX * scale, local.maxY * scale]
+        ];
+        const rotationStyle = target.rotationStyle;
+        if (rotationStyle === 'all around' || rotationStyle === undefined) {
+            const angle = ((90 - target.direction) * Math.PI) / 180;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            for (let i = 0; i < corners.length; i++) {
+                const [x, y] = corners[i];
+                corners[i] = [x * cos - y * sin, x * sin + y * cos];
+            }
+        } else if (rotationStyle === 'left-right' && target.direction < 0) {
+            for (let i = 0; i < corners.length; i++) {
+                corners[i][0] = -corners[i][0];
+            }
+        }
+        const box = pointsToAABB(corners);
+        return {
+            left: target.x + box.minX,
+            right: target.x + box.maxX,
+            bottom: target.y + box.minY,
+            top: target.y + box.maxY
+        };
+    }
+
     function indexRange(startArg, endArg) {
         let start = Math.round(startArg) - 1;
         let end = Math.round(endArg) - 1;
@@ -770,10 +1163,11 @@ Enjoy!! :D
         };
     }
 
-    const GLYPH_OVERSAMPLE = 3;
-    const GLYPH_PADDING_EM = 0.35;
+    const glyphOversample = 3;
     const glyphCache = new Map();
-    let framePinnedGlyphKeys = null;    const glyphMeasureCanvas = document.createElement('canvas');
+    let framePinnedGlyphKeys = null;
+    let framePinnedGlyphKeysRefCount = 0;
+    const glyphMeasureCanvas = document.createElement('canvas');
     const glyphMeasureCtx = glyphMeasureCanvas.getContext('2d', {
         willReadFrequently: false
     });
@@ -781,13 +1175,15 @@ Enjoy!! :D
         glyphMeasureCtx.textRendering = 'optimizeLegibility';
     } catch (e) {}
 
-    const GLYPH_CACHE_LIMIT = 2000;
-    const TINT_CACHE_LIMIT = 512;
+    const glyphCacheLimit = 2000;
+    const glyphCacheByteLimit = 192 * 1024 * 1024;
+    let glyphCacheBytes = 0;
+    const tintCacheLimit = 512;
 
     const glyphShapeCanvasPool = [];
     const tintedCanvasPool = [];
     const stencilCanvasPool = [];
-    const GENERIC_POOL_LIMIT = 256;
+    const genericPoolLimit = 256;
 
     function acquirePooledCanvas(pool, w, h) {
         const canvas = pool.pop() || document.createElement('canvas');
@@ -797,7 +1193,12 @@ Enjoy!! :D
     }
 
     function releasePooledCanvas(pool, canvas) {
-        if (canvas && pool.length < GENERIC_POOL_LIMIT) pool.push(canvas);
+        if (!canvas) return;
+        if (typeof ImageBitmap !== 'undefined' && canvas instanceof ImageBitmap) {
+            canvas.close();
+            return;
+        }
+        if (pool.length < genericPoolLimit) pool.push(canvas);
     }
 
     function glyphCacheKey(char, fontFamily, size, weight, style) {
@@ -805,32 +1206,61 @@ Enjoy!! :D
             weight + '\u0001' + style;
     }
 
+    function computeGlyphBox(m, px, isColorGlyph) {
+        const fontAscent = typeof m.fontBoundingBoxAscent === 'number' ? m.fontBoundingBoxAscent : null;
+        const fontDescent = typeof m.fontBoundingBoxDescent === 'number' ? m.fontBoundingBoxDescent : null;
+        const ascent = Math.ceil(fontAscent ?? m.actualBoundingBoxAscent ?? (px * 0.9));
+        const descent = Math.ceil(fontDescent ?? m.actualBoundingBoxDescent ?? (px * 0.3));
+        const leftBearing = isColorGlyph ? 0 : Math.ceil(Math.max(0, m.actualBoundingBoxLeft || 0));
+        const rightBearing = isColorGlyph ? Math.ceil(Math.max(m.width || 0, 1)) : Math.ceil(Math.max(
+            m.actualBoundingBoxRight || 0,
+            m.width || 0
+        ));
+        const inkAscent = isColorGlyph ? 0 : Math.max(0, m.actualBoundingBoxAscent || 0);
+        const inkDescent = isColorGlyph ? 0 : Math.max(0, m.actualBoundingBoxDescent || 0);
+        const overshoot = Math.max(0, inkAscent - ascent, inkDescent - descent);
+        const pad = Math.max(2, Math.round(px * (isColorGlyph ? 0.35 : 0.15) + overshoot));
+        return {
+            ascent,
+            descent,
+            leftBearing,
+            rightBearing,
+            pad,
+            canvasW: Math.max(1, leftBearing + rightBearing + pad * 2),
+            canvasH: Math.max(1, ascent + descent + pad * 2),
+            baselineX: pad + leftBearing,
+            baselineY: pad + ascent,
+            advance: m.width
+        };
+    }
+
+    function buildGlyphShape(canvas, box, isColorGlyph) {
+        return {
+            canvas,
+            tinted: new Map(),
+            shadows: new Map(),
+            blurred: new Map(),
+            advance: box.advance / glyphOversample,
+            baselineOriginXEm: box.baselineX / glyphOversample,
+            baselineOriginYEm: box.baselineY / glyphOversample,
+            fontAscentEm: box.ascent / glyphOversample,
+            fontDescentEm: box.descent / glyphOversample,
+            isColorGlyph,
+            bytes: canvas.width * canvas.height * 4
+        };
+    }
+
     function rasterizeGlyph(char, fontFamily, size, weight, style) {
-        const px = Math.max(1, Math.round(size * GLYPH_OVERSAMPLE));
-        const pad = Math.max(2, Math.round(size * GLYPH_PADDING_EM * GLYPH_OVERSAMPLE));
+        const startTime = perfStart();
+        const px = Math.max(1, Math.round(size * glyphOversample));
         const fontStr = `${style} ${weight} ${px}px ${fontFamily}`;
+        const isColorGlyph = isEmojiChar(char);
 
         glyphMeasureCtx.font = fontStr;
         glyphMeasureCtx.textBaseline = 'alphabetic';
-        const metrics = glyphMeasureCtx.measureText(char);
-        const ascent = Math.ceil(
-            (typeof metrics.fontBoundingBoxAscent === 'number' ? metrics.fontBoundingBoxAscent : null) ??
-            metrics.actualBoundingBoxAscent ?? (px * 0.9)
-        );
-        const descent = Math.ceil(
-            (typeof metrics.fontBoundingBoxDescent === 'number' ? metrics.fontBoundingBoxDescent : null) ??
-            metrics.actualBoundingBoxDescent ?? (px * 0.3)
-        );
-        const leftBearing = Math.ceil(Math.max(0, metrics.actualBoundingBoxLeft || 0));
-        const rightBearing = Math.ceil(Math.max(
-            metrics.actualBoundingBoxRight || 0,
-            metrics.width || 0
-        ));
-        const advance = metrics.width;
+        const box = computeGlyphBox(glyphMeasureCtx.measureText(char), px, isColorGlyph);
 
-        const canvasW = leftBearing + rightBearing + pad * 2;
-        const canvasH = ascent + descent + pad * 2;
-        const canvas = acquirePooledCanvas(glyphShapeCanvasPool, Math.max(1, canvasW), Math.max(1, canvasH));
+        const canvas = acquirePooledCanvas(glyphShapeCanvasPool, box.canvasW, box.canvasH);
         const ctx = canvas.getContext('2d');
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -840,24 +1270,15 @@ Enjoy!! :D
         try {
             ctx.textRendering = 'optimizeLegibility';
         } catch (e) {}
-        const baselineX = pad + leftBearing;
-        const baselineY = pad + ascent;
-        ctx.fillText(char, baselineX, baselineY);
+        ctx.fillText(char, box.baselineX, box.baselineY);
 
-        return {
-            canvas,
-            tinted: new Map(),
-            shadows: new Map(),
-            advance: advance / GLYPH_OVERSAMPLE,
-            baselineOriginXEm: baselineX / GLYPH_OVERSAMPLE,
-            baselineOriginYEm: baselineY / GLYPH_OVERSAMPLE,
-            fontAscentEm: ascent / GLYPH_OVERSAMPLE,
-            fontDescentEm: descent / GLYPH_OVERSAMPLE
-        };
+        const shape = buildGlyphShape(canvas, box, isColorGlyph);
+        perfEnd('glyph.rasterize.main', startTime);
+        return shape;
     }
 
-    const SHADOW_CACHE_LIMIT = 512;
-    const GLOBAL_SHADOW_CANVAS_LIMIT = 256;
+    const shadowCacheLimit = 512;
+    const globalShadowCanvasLimit = 256;
     const globalShadowLRU = new Map();
     let shadowGlobalKeySeq = 1;
 
@@ -936,7 +1357,7 @@ Enjoy!! :D
 
         const globalKey = shadowGlobalKeySeq++;
         entry.globalKey = globalKey;
-        if (shape.shadows.size >= SHADOW_CACHE_LIMIT) {
+        if (shape.shadows.size >= shadowCacheLimit) {
             const evictedKey = shape.shadows.keys().next().value;
             const evicted = shape.shadows.get(evictedKey);
             shape.shadows.delete(evictedKey);
@@ -946,7 +1367,7 @@ Enjoy!! :D
         }
         shape.shadows.set(key, entry);
 
-        if (globalShadowLRU.size >= GLOBAL_SHADOW_CANVAS_LIMIT) evictOldestGlobalShadow();
+        if (globalShadowLRU.size >= globalShadowCanvasLimit) evictOldestGlobalShadow();
         globalShadowLRU.set(globalKey, {
             shape,
             key,
@@ -960,6 +1381,12 @@ Enjoy!! :D
         if (shape.tinted) {
             for (const tintedCanvas of shape.tinted.values()) {
                 releasePooledCanvas(tintedCanvasPool, tintedCanvas);
+            }
+        }
+        if (shape.blurred) {
+            for (const blurredEntry of shape.blurred.values()) {
+                releasePooledCanvas(tintedCanvasPool, blurredEntry.canvas);
+                evictGLTextureForShape(blurredEntry);
             }
         }
         if (shape.shadows) {
@@ -977,37 +1404,646 @@ Enjoy!! :D
         evictGLTextureForShape(shape);
     }
 
+    function pinGlyphKeysForFrame(keys) {
+        if (!framePinnedGlyphKeys) framePinnedGlyphKeys = new Map();
+        for (const key of keys) {
+            framePinnedGlyphKeys.set(key, (framePinnedGlyphKeys.get(key) || 0) + 1);
+        }
+        framePinnedGlyphKeysRefCount++;
+        return keys;
+    }
+
+    function unpinGlyphKeysForFrame(keys) {
+        if (framePinnedGlyphKeys) {
+            for (const key of keys) {
+                const count = framePinnedGlyphKeys.get(key) || 0;
+                if (count <= 1) {
+                    framePinnedGlyphKeys.delete(key);
+                } else {
+                    framePinnedGlyphKeys.set(key, count - 1);
+                }
+            }
+        }
+        framePinnedGlyphKeysRefCount--;
+        if (framePinnedGlyphKeysRefCount <= 0) {
+            framePinnedGlyphKeysRefCount = 0;
+            framePinnedGlyphKeys = null;
+        }
+    }
+
+    function removeGlyphShape(key) {
+        const shape = glyphCache.get(key);
+        glyphCache.delete(key);
+        if (shape) {
+            glyphCacheBytes -= shape.bytes || 0;
+            releaseGlyphOwnedCanvases(shape);
+        }
+    }
+
+    function makeRoomInGlyphCache() {
+        while (glyphCache.size >= glyphCacheLimit || glyphCacheBytes > glyphCacheByteLimit) {
+            let evictedKey;
+            for (const candidateKey of glyphCache.keys()) {
+                if (!framePinnedGlyphKeys || !framePinnedGlyphKeys.has(candidateKey)) {
+                    evictedKey = candidateKey;
+                    break;
+                }
+            }
+            if (evictedKey === undefined) return;
+            removeGlyphShape(evictedKey);
+        }
+    }
+
     function getGlyphShape(char, fontFamily, size, weight, style) {
         const key = glyphCacheKey(char, fontFamily, size, weight, style);
         let entry = glyphCache.get(key);
         if (!entry) {
-            if (glyphCache.size >= GLYPH_CACHE_LIMIT) {
-                let evictedKey;
-                for (const candidateKey of glyphCache.keys()) {
-                    if (!framePinnedGlyphKeys || !framePinnedGlyphKeys.has(candidateKey)) {
-                        evictedKey = candidateKey;
-                        break;
-                    }
-                }
-                if (evictedKey !== undefined) {
-                    const evictedShape = glyphCache.get(evictedKey);
-                    glyphCache.delete(evictedKey);
-                    if (evictedShape) releaseGlyphOwnedCanvases(evictedShape);
-                }
-            }
+            makeRoomInGlyphCache();
             entry = rasterizeGlyph(char, fontFamily, size, weight, style);
             glyphCache.set(key, entry);
+            glyphCacheBytes += entry.bytes;
         }
         return entry;
     }
 
+    function glyphWorkerMain() {
+        const measureCtx = new OffscreenCanvas(1, 1).getContext('2d');
+        const rasterCanvas = new OffscreenCanvas(1, 1);
+        const rasterCtx = rasterCanvas.getContext('2d');
+        const genericFamilies = ['serif', 'sans-serif', 'monospace'];
+        const probeText = 'AaBbGgQqWwZz01@#';
+        try {
+            measureCtx.textRendering = 'optimizeLegibility';
+        } catch (e) {}
+
+        function primaryFamily(css) {
+            const match = /^"[^"]*"/.exec(css);
+            return match ? match[0] : css;
+        }
+
+        function probeWidth(family) {
+            measureCtx.font = '16px ' + family;
+            return measureCtx.measureText(probeText).width;
+        }
+
+        function fontIsRendering(id) {
+            const quoted = '"' + id + '"';
+            for (const generic of genericFamilies) {
+                if (Math.abs(probeWidth(quoted + ', ' + generic) - probeWidth(generic)) > 0.5) return true;
+            }
+            return false;
+        }
+
+        async function registerFont(message) {
+            let added = 0;
+            for (const face of message.faces) {
+                try {
+                    const fontFace = new FontFace(message.id, face.src, {
+                        weight: face.weight,
+                        style: face.style,
+                        stretch: face.stretch,
+                        unicodeRange: face.unicodeRange
+                    });
+                    fontFace.loaded.catch(() => {});
+                    self.fonts.add(fontFace);
+                    added++;
+                } catch (e) {}
+            }
+            let ok = false;
+            if (message.faces.length === 0) {
+                ok = fontIsRendering(message.id);
+            } else if (added > 0) {
+                const spec = '16px "' + message.id + '"';
+                try {
+                    await self.fonts.load(spec, 'M');
+                } catch (e) {}
+                ok = self.fonts.check(spec, 'M') && fontIsRendering(message.id);
+            }
+            self.postMessage({
+                t: 'fontStatus',
+                id: message.id,
+                ok
+            });
+        }
+
+        async function rasterBatch(message) {
+            const startedAt = performance.now();
+            const results = [];
+            const transfer = [];
+            try {
+                const loads = new Map();
+                for (const item of message.items) {
+                    const spec = item.style + ' ' + item.weight + ' 16px ' + primaryFamily(item.css);
+                    loads.set(spec, (loads.get(spec) || '') + item.char);
+                }
+                const failedSpecs = new Set();
+                await Promise.all(Array.from(loads, async ([spec, chars]) => {
+                    try {
+                        await self.fonts.load(spec, chars);
+                    } catch (e) {
+                        failedSpecs.add(spec);
+                    }
+                }));
+                for (const item of message.items) {
+                    const spec = item.style + ' ' + item.weight + ' 16px ' + primaryFamily(item.css);
+                    if (failedSpecs.has(spec)) {
+                        results.push({
+                            key: item.key,
+                            failed: true
+                        });
+                        continue;
+                    }
+                    const fontStr = item.style + ' ' + item.weight + ' ' + item.px + 'px ' + item.css;
+                    measureCtx.font = fontStr;
+                    measureCtx.textBaseline = 'alphabetic';
+                    const box = computeGlyphBox(measureCtx.measureText(item.char), item.px, false);
+                    rasterCanvas.width = box.canvasW;
+                    rasterCanvas.height = box.canvasH;
+                    rasterCtx.font = fontStr;
+                    rasterCtx.textBaseline = 'alphabetic';
+                    rasterCtx.fillStyle = '#ffffff';
+                    try {
+                        rasterCtx.textRendering = 'optimizeLegibility';
+                    } catch (e) {}
+                    rasterCtx.fillText(item.char, box.baselineX, box.baselineY);
+                    const bitmap = rasterCanvas.transferToImageBitmap();
+                    results.push({
+                        key: item.key,
+                        bitmap,
+                        box
+                    });
+                    transfer.push(bitmap);
+                }
+            } catch (e) {
+                results.length = 0;
+                transfer.length = 0;
+                for (const item of message.items) {
+                    results.push({
+                        key: item.key,
+                        failed: true
+                    });
+                }
+            }
+            self.postMessage({
+                t: 'rastered',
+                id: message.id,
+                results,
+                elapsed: performance.now() - startedAt
+            }, transfer);
+        }
+
+        self.onmessage = event => {
+            const message = event.data;
+            if (!message) return;
+            if (message.t === 'font') registerFont(message);
+            else if (message.t === 'raster') rasterBatch(message);
+        };
+
+        self.postMessage({
+            t: 'ready',
+            supported: typeof self.fonts !== 'undefined' && typeof FontFace === 'function'
+        });
+    }
+
+    const glyphWorkerBatchMin = 24;
+    const glyphWorkerChunk = 96;
+    const glyphWorkerChunkCost = 1500000;
+    const glyphWorkerCostMin = 270000;
+    const glyphWorkerMaxDeferrals = 3;
+    const glyphWorkerAnimationGapMs = 250;
+    const glyphWorkerTimeoutMs = 10000;
+    const glyphWorkerFailedKeyLimit = 4000;
+
+    const glyphWorker = {
+        worker: null,
+        url: null,
+        readyTimer: null,
+        enabled: true,
+        ready: false,
+        failed: false,
+        failReason: null,
+        nextBatchId: 1,
+        batches: new Map(),
+        pendingKeys: new Set(),
+        failedKeys: new Set(),
+        fontStates: new Map(),
+        waiters: new Map(),
+        prewarmed: false
+    };
+
+    function glyphWorkerUsable() {
+        return glyphWorker.enabled && glyphWorker.ready && !glyphWorker.failed;
+    }
+
+    function fontIdFromCss(css) {
+        const match = /^"([^"]*)"/.exec(css);
+        return match ? match[1] : null;
+    }
+
+    function glyphWorkerHasFont(css) {
+        const id = fontIdFromCss(css);
+        return id !== null && glyphWorker.fontStates.get(id) === 'ready';
+    }
+
+    function normalizeFontFamilyName(value) {
+        return String(value || '').trim().replace(/^["']|["']$/g, '').toLowerCase();
+    }
+
+    function absoluteFontSource(src, baseHref) {
+        return src.replace(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]*))\s*\)/g, (whole, doubleQuoted, singleQuoted, bare) => {
+            const raw = doubleQuoted !== undefined ? doubleQuoted : (singleQuoted !== undefined ? singleQuoted : bare);
+            try {
+                return 'url("' + new URL(raw, baseHref).href + '")';
+            } catch (e) {
+                return whole;
+            }
+        });
+    }
+
+    function collectFontFaceDescriptors(fontId) {
+        const wanted = normalizeFontFamilyName(fontId);
+        const faces = [];
+        const visited = new Set();
+        const visitRules = (rules, baseHref) => {
+            for (let i = 0; i < rules.length; i++) {
+                const rule = rules[i];
+                if (typeof CSSFontFaceRule !== 'undefined' && rule instanceof CSSFontFaceRule) {
+                    const style = rule.style;
+                    if (normalizeFontFamilyName(style.getPropertyValue('font-family')) !== wanted) continue;
+                    const faceSrc = style.getPropertyValue('src');
+                    if (!faceSrc) continue;
+                    faces.push({
+                        src: absoluteFontSource(faceSrc, baseHref),
+                        weight: style.getPropertyValue('font-weight') || 'normal',
+                        style: style.getPropertyValue('font-style') || 'normal',
+                        stretch: style.getPropertyValue('font-stretch') || 'normal',
+                        unicodeRange: style.getPropertyValue('unicode-range') || 'U+0-10FFFF'
+                    });
+                } else if (typeof CSSImportRule !== 'undefined' && rule instanceof CSSImportRule) {
+                    if (rule.styleSheet) visitSheet(rule.styleSheet);
+                } else if (rule.cssRules) {
+                    visitRules(rule.cssRules, baseHref);
+                }
+            }
+        };
+        const visitSheet = sheet => {
+            if (!sheet || visited.has(sheet)) return;
+            visited.add(sheet);
+            let rules = null;
+            try {
+                rules = sheet.cssRules;
+            } catch (e) {
+                return;
+            }
+            if (rules) visitRules(rules, sheet.href || document.baseURI);
+        };
+        for (const sheet of Array.from(document.styleSheets)) visitSheet(sheet);
+        if (document.adoptedStyleSheets) {
+            for (const sheet of Array.from(document.adoptedStyleSheets)) visitSheet(sheet);
+        }
+        return faces;
+    }
+
+    function documentHasFontFace(fontId) {
+        const wanted = normalizeFontFamilyName(fontId);
+        try {
+            return Array.from(document.fonts).some(face => normalizeFontFamilyName(face.family) === wanted);
+        } catch (e) {
+            return true;
+        }
+    }
+
+    function registerWorkerFont(fontId) {
+        if (!glyphWorkerUsable() || glyphWorker.fontStates.has(fontId)) return;
+        const faces = collectFontFaceDescriptors(fontId);
+        if (!faces.length && documentHasFontFace(fontId)) {
+            glyphWorker.fontStates.set(fontId, 'unavailable');
+            return;
+        }
+        glyphWorker.fontStates.set(fontId, 'pending');
+        glyphWorker.worker.postMessage({
+            t: 'font',
+            id: fontId,
+            faces
+        });
+    }
+
+    function releaseGlyphWorkerResources() {
+        clearTimeout(glyphWorker.readyTimer);
+        glyphWorker.readyTimer = null;
+        for (const batch of glyphWorker.batches.values()) clearTimeout(batch.timer);
+        glyphWorker.batches.clear();
+        glyphWorker.pendingKeys.clear();
+        if (glyphWorker.worker) {
+            glyphWorker.worker.onmessage = null;
+            glyphWorker.worker.onerror = null;
+            glyphWorker.worker.onmessageerror = null;
+            glyphWorker.worker.terminate();
+            glyphWorker.worker = null;
+        }
+        if (glyphWorker.url) {
+            URL.revokeObjectURL(glyphWorker.url);
+            glyphWorker.url = null;
+        }
+    }
+
+    function flushAllGlyphWaiters() {
+        const targets = Array.from(glyphWorker.waiters.keys());
+        glyphWorker.waiters.clear();
+        for (const target of targets) scheduleRender(target);
+    }
+
+    function failGlyphWorker(reason) {
+        glyphWorker.failed = true;
+        glyphWorker.ready = false;
+        glyphWorker.failReason = reason;
+        glyphWorker.fontStates.clear();
+        releaseGlyphWorkerResources();
+        flushAllGlyphWaiters();
+    }
+
+    function destroyGlyphWorker() {
+        glyphWorker.enabled = false;
+        glyphWorker.ready = false;
+        glyphWorker.fontStates.clear();
+        releaseGlyphWorkerResources();
+        glyphWorker.waiters.clear();
+    }
+
+    function resolveGlyphWaiters(keys) {
+        for (const [target, needed] of glyphWorker.waiters) {
+            for (const key of keys) needed.delete(key);
+            if (!needed.size) {
+                glyphWorker.waiters.delete(target);
+                scheduleRender(target);
+            }
+        }
+    }
+
+    function insertGlyphShape(key, shape) {
+        makeRoomInGlyphCache();
+        glyphCache.set(key, shape);
+        glyphCacheBytes += shape.bytes;
+    }
+
+    const glyphUploadBudgetMs = 4;
+    const glyphUploadQueue = [];
+    let glyphUploadScheduled = false;
+
+    function pumpGlyphUploads() {
+        glyphUploadScheduled = false;
+        const startTime = perfStart();
+        const compositor = getGLCompositor();
+        const deadline = performance.now() + glyphUploadBudgetMs;
+        const doneKeys = [];
+        while (glyphUploadQueue.length) {
+            const entry = glyphUploadQueue.shift();
+            if (compositor && glyphCache.get(entry.key) === entry.shape) compositor.getGlyphTexture(entry.shape);
+            doneKeys.push(entry.key);
+            if (performance.now() >= deadline) break;
+        }
+        perfEnd('glyph.upload', startTime);
+        resolveGlyphWaiters(doneKeys);
+        if (glyphUploadQueue.length) scheduleGlyphUploads();
+    }
+
+    function scheduleGlyphUploads() {
+        if (glyphUploadScheduled) return;
+        glyphUploadScheduled = true;
+        requestAnimationFrame(pumpGlyphUploads);
+    }
+
+    function receiveWorkerGlyphs(message) {
+        const batch = glyphWorker.batches.get(message.id);
+        if (!batch) {
+            for (const result of message.results) {
+                if (result.bitmap) result.bitmap.close();
+            }
+            return;
+        }
+        clearTimeout(batch.timer);
+        glyphWorker.batches.delete(message.id);
+        perfEnd('glyph.worker.roundtrip', batch.startedAt);
+        perfRecord('glyph.worker.raster', message.elapsed);
+        const immediateKeys = [];
+        let queued = false;
+        for (const result of message.results) {
+            glyphWorker.pendingKeys.delete(result.key);
+            if (result.failed || !result.bitmap) {
+                if (glyphWorker.failedKeys.size >= glyphWorkerFailedKeyLimit) glyphWorker.failedKeys.clear();
+                glyphWorker.failedKeys.add(result.key);
+                immediateKeys.push(result.key);
+                continue;
+            }
+            if (glyphCache.has(result.key)) {
+                result.bitmap.close();
+                immediateKeys.push(result.key);
+                continue;
+            }
+            const shape = buildGlyphShape(result.bitmap, result.box, false);
+            insertGlyphShape(result.key, shape);
+            glyphUploadQueue.push({
+                key: result.key,
+                shape
+            });
+            queued = true;
+        }
+        if (queued) scheduleGlyphUploads();
+        if (immediateKeys.length) resolveGlyphWaiters(immediateKeys);
+    }
+
+    function onGlyphWorkerMessage(event) {
+        const message = event.data;
+        if (!message) return;
+        if (message.t === 'ready') {
+            clearTimeout(glyphWorker.readyTimer);
+            glyphWorker.readyTimer = null;
+            if (!message.supported) {
+                failGlyphWorker('no-font-api');
+                return;
+            }
+            glyphWorker.ready = true;
+            for (const fontId of loadedDocumentFonts) registerWorkerFont(fontId);
+        } else if (message.t === 'fontStatus') {
+            glyphWorker.fontStates.set(message.id, message.ok ? 'ready' : 'unavailable');
+            if (message.ok && message.id === defaultBaseStyle().font) prewarmDefaultGlyphs();
+        } else if (message.t === 'rastered') {
+            receiveWorkerGlyphs(message);
+        }
+    }
+
+    function startGlyphWorker() {
+        if (glyphWorker.worker || glyphWorker.failed) return;
+        if (typeof Worker !== 'function' || typeof OffscreenCanvas !== 'function' || typeof Blob !== 'function' ||
+            typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+            failGlyphWorker('unsupported');
+            return;
+        }
+        try {
+            const source = computeGlyphBox.toString() + '\n(' + glyphWorkerMain.toString() + ')();';
+            glyphWorker.url = URL.createObjectURL(new Blob([source], {
+                type: 'text/javascript'
+            }));
+            glyphWorker.worker = new Worker(glyphWorker.url);
+        } catch (e) {
+            failGlyphWorker('spawn');
+            return;
+        }
+        glyphWorker.worker.onmessage = onGlyphWorkerMessage;
+        glyphWorker.worker.onerror = () => failGlyphWorker('error');
+        glyphWorker.worker.onmessageerror = () => failGlyphWorker('messageerror');
+        glyphWorker.readyTimer = setTimeout(() => {
+            if (!glyphWorker.ready) failGlyphWorker('timeout');
+        }, glyphWorkerTimeoutMs);
+    }
+
+    function setGlyphWorkerEnabled(enabled) {
+        glyphWorker.enabled = !!enabled;
+        if (glyphWorker.enabled && glyphWorker.ready) {
+            for (const fontId of loadedDocumentFonts) registerWorkerFont(fontId);
+        }
+    }
+
+    function glyphWorkerStatus() {
+        const fonts = {};
+        for (const [id, state] of glyphWorker.fontStates) fonts[id] = state;
+        return {
+            hasWorker: !!glyphWorker.worker,
+            enabled: glyphWorker.enabled,
+            ready: glyphWorker.ready,
+            failed: glyphWorker.failed,
+            failReason: glyphWorker.failReason,
+            fonts,
+            pendingGlyphs: glyphWorker.pendingKeys.size,
+            cachedGlyphs: glyphCache.size
+        };
+    }
+
+    function glyphRasterCost(size) {
+        const px = Math.max(1, Math.round(size * glyphOversample));
+        return px * px * 1.3;
+    }
+
+    function chunkGlyphRequests(requests) {
+        const chunks = [];
+        let chunk = [];
+        let cost = 0;
+        for (const request of requests) {
+            chunk.push(request);
+            cost += glyphRasterCost(request.size);
+            if (chunk.length >= glyphWorkerChunk || cost >= glyphWorkerChunkCost) {
+                chunks.push(chunk);
+                chunk = [];
+                cost = 0;
+            }
+        }
+        if (chunk.length) chunks.push(chunk);
+        return chunks;
+    }
+
+    function dispatchGlyphRequests(requests) {
+        if (!requests.length || !glyphWorkerUsable()) return;
+        for (const chunk of chunkGlyphRequests(requests)) {
+            const id = glyphWorker.nextBatchId++;
+            const items = chunk.map(request => {
+                glyphWorker.pendingKeys.add(request.key);
+                return {
+                    key: request.key,
+                    char: request.char,
+                    css: request.css,
+                    px: Math.max(1, Math.round(request.size * glyphOversample)),
+                    weight: request.weight,
+                    style: request.style
+                };
+            });
+            glyphWorker.batches.set(id, {
+                keys: items.map(item => item.key),
+                startedAt: perfStart(),
+                timer: setTimeout(() => failGlyphWorker('timeout'), glyphWorkerTimeoutMs)
+            });
+            glyphWorker.worker.postMessage({
+                t: 'raster',
+                id,
+                items
+            });
+        }
+    }
+
+    function prewarmDefaultGlyphs() {
+        if (glyphWorker.prewarmed) return;
+        glyphWorker.prewarmed = true;
+        const base = defaultBaseStyle();
+        const css = cssFontFamily(base.font);
+        const requests = [];
+        for (let code = 33; code <= 126; code++) {
+            const char = String.fromCharCode(code);
+            const key = glyphCacheKey(char, css, base.size, 'normal', 'normal');
+            if (glyphCache.has(key) || glyphWorker.pendingKeys.has(key)) continue;
+            requests.push({
+                key,
+                char,
+                css,
+                size: base.size,
+                weight: 'normal',
+                style: 'normal'
+            });
+        }
+        dispatchGlyphRequests(requests);
+    }
+
+    function deferForWorkerGlyphs(target, state, paintOps, cull) {
+        if (!glyphWorkerUsable()) return false;
+        if (state.hasPaintedOnce && state.lastPaintAt && performance.now() - state.lastPaintAt < glyphWorkerAnimationGapMs) return false;
+        if ((state.workerDeferrals || 0) >= glyphWorkerMaxDeferrals) return false;
+        let requests = null;
+        let needed = null;
+        let cost = 0;
+        for (let i = 0; i < paintOps.length; i++) {
+            const op = paintOps[i];
+            const char = op.text;
+            if (char === '\u00A0' || char === '') continue;
+            if (cull && (cull.empty || !opMayBeVisible(op, cull))) continue;
+            const font = op.font;
+            const key = glyphCacheKey(char, font['font-family'], font['font-size'], font['font-weight'], font['font-style']);
+            if (glyphCache.has(key)) continue;
+            if (glyphWorker.pendingKeys.has(key)) {
+                if (!needed) needed = new Set();
+                needed.add(key);
+                continue;
+            }
+            if (glyphWorker.failedKeys.has(key) || isEmojiChar(char) || !glyphWorkerHasFont(font['font-family'])) continue;
+            if (!requests) requests = new Map();
+            if (!requests.has(key)) {
+                cost += glyphRasterCost(font['font-size']);
+                requests.set(key, {
+                    key,
+                    char,
+                    css: font['font-family'],
+                    size: font['font-size'],
+                    weight: font['font-weight'],
+                    style: font['font-style']
+                });
+            }
+        }
+        if (!requests && !needed) return false;
+        if (!needed && requests.size < glyphWorkerBatchMin && cost < glyphWorkerCostMin) return false;
+        state.workerDeferrals = (state.workerDeferrals || 0) + 1;
+        if (requests) {
+            if (!needed) needed = new Set();
+            for (const key of requests.keys()) needed.add(key);
+            dispatchGlyphRequests(Array.from(requests.values()));
+        }
+        glyphWorker.waiters.set(target, needed);
+        return true;
+    }
+
     const maskGlyphStencilCache = new Map();
-    const STENCIL_CACHE_LIMIT = 400;
+    const stencilCacheLimit = 400;
     const maskScratchCanvasPool = [];
-    const CANVAS_SIZE_BUCKET = 32;
+    const canvasSizeBucket = 32;
 
     function bucketSize(n) {
-        return Math.max(CANVAS_SIZE_BUCKET, Math.ceil(n / CANVAS_SIZE_BUCKET) * CANVAS_SIZE_BUCKET);
+        return Math.max(canvasSizeBucket, Math.ceil(n / canvasSizeBucket) * canvasSizeBucket);
     }
 
     const sharedPatternSurface = (() => {
@@ -1063,7 +2099,7 @@ Enjoy!! :D
         sctx.fillRect(0, 0, stencil.width, stencil.height);
         sctx.globalCompositeOperation = 'destination-in';
         sctx.drawImage(shape.canvas, 0, 0);
-        if (maskGlyphStencilCache.size >= STENCIL_CACHE_LIMIT) {
+        if (maskGlyphStencilCache.size >= stencilCacheLimit) {
             const evictedShape = maskGlyphStencilCache.keys().next().value;
             releasePooledCanvas(stencilCanvasPool, maskGlyphStencilCache.get(evictedShape));
             maskGlyphStencilCache.delete(evictedShape);
@@ -1105,7 +2141,7 @@ Enjoy!! :D
     }
 
     function drawMaskedGlyph(destCtx, char, fontFamily, size, weight, style, mask, texture, worldDrawX, worldDrawY, spanW, spanH, spanOriginX, spanOriginY, destX, destY, alpha) {
-        const coverage = Math.max(0, Math.min(100, Scratch.Cast.toNumber(mask.coverage) || 0)) / 100;
+        const coverage = clampPercentToUnit(Scratch.Cast.toNumber(mask.coverage));
         if (coverage <= 0) return;
 
         const shape = getGlyphShape(char, fontFamily, size, weight, style);
@@ -1113,9 +2149,9 @@ Enjoy!! :D
         const h = shape.canvas.height;
 
         const zoom = Math.max(0.01, (Scratch.Cast.toNumber(mask.zoom) || 100) / 100);
-        const rotation = Scratch.Cast.toNumber(mask.rotation) || 0;
-        const anchorX = (mask.x || 0) * DEST_SCALE - destX;
-        const anchorY = -(mask.y || 0) * DEST_SCALE - destY;
+        const rotation = Scratch.Cast.toNumber(mask.rotation);
+        const anchorX = (mask.x || 0) * destScale - destX;
+        const anchorY = -(mask.y || 0) * destScale - destY;
 
         const matrix = new DOMMatrix();
         matrix.translateSelf(anchorX, anchorY);
@@ -1144,20 +2180,20 @@ Enjoy!! :D
             const localOffsetY = seamless ? (worldDrawY - spanOriginY) : 0;
             const effSpanW = seamless && spanW ? spanW : w;
             const effSpanH = seamless && spanH ? spanH : h;
-            const blurPx = Math.max(0, Scratch.Cast.toNumber(mask.blur) || 0) * DEST_SCALE;
-            const direction = mask.direction || WIPE_DIRECTION_BOTTOM_UP;
+            const blurPx = Math.max(0, Scratch.Cast.toNumber(mask.blur)) * destScale;
+            const direction = mask.direction || wipeDirectionBottomUp;
             const bandHalf = Math.max(0.5, blurPx / 2);
 
             let revealEdge, axisIsX, growsPositive;
-            if (direction === WIPE_DIRECTION_LEFT_RIGHT) {
+            if (direction === wipeDirectionLeftRight) {
                 revealEdge = effSpanW * coverage - localOffsetX;
                 axisIsX = true;
                 growsPositive = true;
-            } else if (direction === WIPE_DIRECTION_RIGHT_LEFT) {
+            } else if (direction === wipeDirectionRightLeft) {
                 revealEdge = effSpanW - effSpanW * coverage - localOffsetX;
                 axisIsX = true;
                 growsPositive = false;
-            } else if (direction === WIPE_DIRECTION_UP_DOWN) {
+            } else if (direction === wipeDirectionUpDown) {
                 revealEdge = effSpanH * coverage - localOffsetY;
                 axisIsX = false;
                 growsPositive = true;
@@ -1204,7 +2240,8 @@ Enjoy!! :D
         releaseMaskScratchCanvas(scratch);
     }
 
-    function tintGlyph(shape, color) {
+    function tintGlyph(shape, color, emojiMode) {
+        if (shape.isColorGlyph && emojiMode === 2) return shape.canvas;
         let tintedCanvas = shape.tinted.get(color);
         if (tintedCanvas) return tintedCanvas;
 
@@ -1218,7 +2255,7 @@ Enjoy!! :D
         tctx.globalCompositeOperation = 'destination-in';
         tctx.drawImage(shape.canvas, 0, 0);
 
-        if (shape.tinted.size >= TINT_CACHE_LIMIT) {
+        if (shape.tinted.size >= tintCacheLimit) {
             const evictedColor = shape.tinted.keys().next().value;
             releasePooledCanvas(tintedCanvasPool, shape.tinted.get(evictedColor));
             shape.tinted.delete(evictedColor);
@@ -1228,14 +2265,57 @@ Enjoy!! :D
         return tintedCanvas;
     }
 
+    const blurQuantumPx = 0.5;
+    const blurMaxPx = 40;
+
+    function quantizeBlurPx(blurPx) {
+        const clamped = Math.min(blurMaxPx, blurPx);
+        return Math.round(clamped / blurQuantumPx) * blurQuantumPx;
+    }
+
+    function getBlurredGlyphBitmap(shape, color, blurPxRaw) {
+        const blurPx = quantizeBlurPx(blurPxRaw);
+        const key = color + '\u0001' + blurPx;
+        let entry = shape.blurred.get(key);
+        if (entry) return entry;
+
+        const source = tintGlyph(shape, color);
+        const padPx = Math.ceil(blurPx * 3) + 2;
+        const w = source.width + padPx * 2;
+        const h = source.height + padPx * 2;
+        const canvas = acquirePooledCanvas(tintedCanvasPool, w, h);
+        const bctx = canvas.getContext('2d');
+        bctx.setTransform(1, 0, 0, 1, 0, 0);
+        bctx.clearRect(0, 0, w, h);
+        bctx.filter = `blur(${blurPx}px)`;
+        bctx.drawImage(source, padPx, padPx);
+        bctx.filter = 'none';
+
+        entry = {
+            canvas,
+            offsetX: -padPx,
+            offsetY: -padPx
+        };
+
+        if (shape.blurred.size >= tintCacheLimit) {
+            const evictedKey = shape.blurred.keys().next().value;
+            const evicted = shape.blurred.get(evictedKey);
+            releasePooledCanvas(tintedCanvasPool, evicted.canvas);
+            evictGLTextureForShape(evicted);
+            shape.blurred.delete(evictedKey);
+        }
+        shape.blurred.set(key, entry);
+        return entry;
+    }
+
     function buildGradientCanvasStyle(ctx, gradient, spanW, spanH, localOffsetXPx, localOffsetYPx) {
         const colors = gradient.colors;
         const last = colors.length - 1;
         const cx = spanW / 2 - localOffsetXPx;
         const cy = spanH / 2 - localOffsetYPx;
-        const type = gradient.type || GRADIENT_TYPE_LINEAR;
+        const type = gradient.type || gradientTypeLinear;
 
-        if (type === GRADIENT_TYPE_RADIAL) {
+        if (type === gradientTypeRadial) {
             const radius = Math.max(1, Math.sqrt(spanW * spanW + spanH * spanH) / 2);
             const canvasGradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
             for (let c = 0; c <= last; c++) {
@@ -1244,8 +2324,8 @@ Enjoy!! :D
             return canvasGradient;
         }
 
-        if (type === GRADIENT_TYPE_CONIC && typeof ctx.createConicGradient === 'function') {
-            const startAngleRad = (gradient.angle || 0) * Math.PI / 180;
+        if (type === gradientTypeConic) {
+            const startAngleRad = (gradient.angle || 0) * Math.PI / 180 - Math.PI / 2;
             const canvasGradient = ctx.createConicGradient(startAngleRad, cx, cy);
             for (let c = 0; c <= last; c++) {
                 canvasGradient.addColorStop(last === 0 ? 0 : c / last, colors[c]);
@@ -1320,99 +2400,58 @@ Enjoy!! :D
             shape
         };
         if (!shape.bitmaps) shape.bitmaps = new Map();
-        if (shape.bitmaps.size >= TINT_CACHE_LIMIT) {
+        if (shape.bitmaps.size >= tintCacheLimit) {
             shape.bitmaps.delete(shape.bitmaps.keys().next().value);
         }
         shape.bitmaps.set(color, bitmap);
         return bitmap;
     }
 
-    const READBACK_CANVAS = document.createElement('canvas');
-    const READBACK_CTX = READBACK_CANVAS.getContext('2d', {
+    const readbackCanvas = document.createElement('canvas');
+    const readbackCtx = readbackCanvas.getContext('2d', {
         willReadFrequently: true
     });
 
-    function getGlyphInkColumns(glyph) {
-        if (glyph.inkColumns) return glyph.inkColumns;
+    function getGlyphInkBand(glyph, rowStart, rowEnd) {
         const w = glyph.canvas.width;
-        const h = glyph.canvas.height;
-        if (READBACK_CANVAS.width !== w) READBACK_CANVAS.width = w;
-        if (READBACK_CANVAS.height !== h) READBACK_CANVAS.height = h;
-        READBACK_CTX.setTransform(1, 0, 0, 1, 0, 0);
-        READBACK_CTX.clearRect(0, 0, w, h);
-        READBACK_CTX.drawImage(glyph.canvas, 0, 0);
-        const image = READBACK_CTX.getImageData(0, 0, w, h);
-        const inkColumns = new Uint8Array(w * h);
-        for (let i = 0; i < inkColumns.length; i++) {
-            inkColumns[i] = image.data[i * 4 + 3] > 16 ? 1 : 0;
+        const rows = rowEnd - rowStart + 1;
+        if (rows <= 0 || w <= 0) return new Uint8Array(Math.max(0, w));
+        const cacheKey = rowStart + ':' + rowEnd;
+        let bands = glyph.inkBands;
+        if (!bands) {
+            bands = new Map();
+            glyph.inkBands = bands;
         }
-        glyph.inkColumns = inkColumns;
-        return inkColumns;
-    }
-
-    function strokeUnderline(ctx, glyph, glyphX, glyphY, startX, endX, y, lineWidth) {
-        const stroke = (x1, x2) => {
-            if (x2 <= x1) return;
-            ctx.beginPath();
-            ctx.moveTo(x1, y);
-            ctx.lineTo(x2, y);
-            ctx.stroke();
-        };
-
-        try {
-            const w = glyph.canvas.width;
-            const inkData = getGlyphInkColumns(glyph);
-            const rowStart = Math.max(0, Math.floor(y - glyphY - lineWidth / 2));
-            const rowEnd = Math.min(glyph.canvas.height - 1, Math.ceil(y - glyphY + lineWidth / 2));
-            const columnStart = Math.max(0, Math.floor(startX - glyphX));
-            const columnEnd = Math.min(w - 1, Math.ceil(endX - glyphX));
-            const ink = new Uint8Array(w);
-
-            for (let py = rowStart; py <= rowEnd; py++) {
-                for (let px = columnStart; px <= columnEnd; px++) {
-                    if (inkData[py * w + px]) ink[px] = 1;
-                }
+        let ink = bands.get(cacheKey);
+        if (ink) return ink;
+        if (readbackCanvas.width !== w) readbackCanvas.width = w;
+        if (readbackCanvas.height !== rows) readbackCanvas.height = rows;
+        readbackCtx.setTransform(1, 0, 0, 1, 0, 0);
+        readbackCtx.clearRect(0, 0, w, rows);
+        readbackCtx.drawImage(glyph.canvas, 0, rowStart, w, rows, 0, 0, w, rows);
+        const data = readbackCtx.getImageData(0, 0, w, rows).data;
+        ink = new Uint8Array(w);
+        for (let y = 0; y < rows; y++) {
+            const rowOffset = y * w * 4;
+            for (let x = 0; x < w; x++) {
+                if (data[rowOffset + x * 4 + 3] > 16) ink[x] = 1;
             }
-
-            const padding = Math.max(1, Math.ceil(lineWidth / 2) + 1);
-            let segmentStart = startX;
-            let px = columnStart;
-            while (px <= columnEnd) {
-                if (!ink[px]) {
-                    px++;
-                    continue;
-                }
-                const inkStart = px;
-                while (px <= columnEnd && ink[px]) px++;
-                const skipStart = Math.max(startX, glyphX + inkStart - padding);
-                const skipEnd = Math.min(endX, glyphX + px + padding);
-                stroke(segmentStart, skipStart);
-                segmentStart = Math.max(segmentStart, skipEnd);
-            }
-            stroke(segmentStart, endX);
-        } catch (e) {
-            stroke(startX, endX);
         }
+        if (bands.size >= 8) bands.delete(bands.keys().next().value);
+        bands.set(cacheKey, ink);
+        return ink;
     }
 
     function invalidateGlyphCacheForFamily(fontFamily) {
-        const evictedKeys = [];
-        for (const key of glyphCache.keys()) {
-            if (key.indexOf('\u0001' + fontFamily + '\u0001') !== -1) {
-                glyphCache.delete(key);
-                evictedKeys.push(key);
-            }
+        for (const key of Array.from(glyphCache.keys())) {
+            if (key.indexOf('\u0001' + fontFamily + '\u0001') !== -1) removeGlyphShape(key);
         }
-        if (evictedKeys.length && renderWorker) {
-            for (const key of evictedKeys) workerKnownGlyphKeys.delete(key);
-            renderWorker.postMessage({
-                type: 'evict-glyphs',
-                glyphKeys: evictedKeys
-            });
+        for (const key of glyphWorker.failedKeys) {
+            if (key.indexOf('\u0001' + fontFamily + '\u0001') !== -1) glyphWorker.failedKeys.delete(key);
         }
     }
 
-    const MASK_TEXTURE_RASTER_SIZE = 512;
+    const maskTextureRasterSize = 512;
     const maskTextureCache = new Map();
     const maskTexturePending = new Map();
 
@@ -1465,11 +2504,11 @@ Enjoy!! :D
         const aspect = nativeW / nativeH;
         let canvasW, canvasH;
         if (aspect >= 1) {
-            canvasW = MASK_TEXTURE_RASTER_SIZE;
-            canvasH = Math.max(1, Math.round(MASK_TEXTURE_RASTER_SIZE / aspect));
+            canvasW = maskTextureRasterSize;
+            canvasH = Math.max(1, Math.round(maskTextureRasterSize / aspect));
         } else {
-            canvasH = MASK_TEXTURE_RASTER_SIZE;
-            canvasW = Math.max(1, Math.round(MASK_TEXTURE_RASTER_SIZE * aspect));
+            canvasH = maskTextureRasterSize;
+            canvasW = Math.max(1, Math.round(maskTextureRasterSize * aspect));
         }
         const canvas = document.createElement('canvas');
         canvas.width = canvasW;
@@ -1513,11 +2552,11 @@ Enjoy!! :D
                 const aspect = nativeW / nativeH;
                 let canvasW, canvasH;
                 if (aspect >= 1) {
-                    canvasW = MASK_TEXTURE_RASTER_SIZE;
-                    canvasH = Math.max(1, Math.round(MASK_TEXTURE_RASTER_SIZE / aspect));
+                    canvasW = maskTextureRasterSize;
+                    canvasH = Math.max(1, Math.round(maskTextureRasterSize / aspect));
                 } else {
-                    canvasH = MASK_TEXTURE_RASTER_SIZE;
-                    canvasW = Math.max(1, Math.round(MASK_TEXTURE_RASTER_SIZE * aspect));
+                    canvasH = maskTextureRasterSize;
+                    canvasW = Math.max(1, Math.round(maskTextureRasterSize * aspect));
                 }
                 const canvas = document.createElement('canvas');
                 canvas.width = canvasW;
@@ -1564,7 +2603,7 @@ Enjoy!! :D
 
     function repaintAllTargetsUsingMasks() {
         for (const candidate of runtime.targets) {
-            const state = candidate.getCustomState(STATE_KEY);
+            const state = candidate.getCustomState(stateKey);
             if (!state || !state.visible) continue;
             if (!state.charMasks || !Object.keys(state.charMasks).length) continue;
             state.paintFingerprint = null;
@@ -1577,7 +2616,7 @@ Enjoy!! :D
     }
 
     const shapingFontStyleCache = new Map();
-    const SHAPING_FONT_STYLE_CACHE_LIMIT = 500;
+    const shapingFontStyleCacheLimit = 500;
 
     function shapingFontStyle(style) {
         const key = shapingFontStyleKey(style);
@@ -1594,7 +2633,7 @@ Enjoy!! :D
             'font-style': fontStyle,
             'styleHash': styleHash
         };
-        if (shapingFontStyleCache.size >= SHAPING_FONT_STYLE_CACHE_LIMIT) {
+        if (shapingFontStyleCache.size >= shapingFontStyleCacheLimit) {
             shapingFontStyleCache.delete(shapingFontStyleCache.keys().next().value);
         }
         shapingFontStyleCache.set(key, cached);
@@ -1639,11 +2678,17 @@ Enjoy!! :D
     }
 
     const charAdvanceCache = new Map();
-    const CHAR_ADVANCE_CACHE_LIMIT = 4000;
+    const charAdvanceCacheLimit = 4000;
 
     function charAdvanceCacheKey(fontStyle, letterSpacing, prevChar, char) {
         return fontStyle.styleHash + '\u0001' + fontStyle['font-size'] + '\u0001' +
             (letterSpacing || 0) + '\u0001' + (prevChar === undefined ? '' : prevChar) + '\u0001' + char;
+    }
+
+    function brokenNbspSpaceAdvance(measureCtx) {
+        const nbspAdvance = measureCtx.measureText('\u00A0').width;
+        const spaceAdvance = measureCtx.measureText('M M').width - measureCtx.measureText('MM').width;
+        return spaceAdvance > 0 && nbspAdvance < spaceAdvance * 0.5 ? spaceAdvance : null;
     }
 
     function measureCharsIndividually(measureCtx, run, letterSpacing) {
@@ -1665,13 +2710,19 @@ Enjoy!! :D
             measureCtx.textBaseline = 'alphabetic';
             const spacing = letterSpacing || 0;
             const soloWidths = new Map();
+            let nbspReplacementAdvance;
             for (let m = 0; m < missing.length; m++) {
                 const {
                     prevCh,
                     ch
                 } = missing[m];
                 let advance;
-                if (prevCh === undefined) {
+                if (ch === '\u00A0' && nbspReplacementAdvance === undefined) {
+                    nbspReplacementAdvance = brokenNbspSpaceAdvance(measureCtx);
+                }
+                if (ch === '\u00A0' && nbspReplacementAdvance !== null) {
+                    advance = nbspReplacementAdvance + spacing;
+                } else if (prevCh === undefined) {
                     advance = measureCtx.measureText(ch).width + spacing;
                 } else {
                     let prevWidth = soloWidths.get(prevCh);
@@ -1682,7 +2733,7 @@ Enjoy!! :D
                     const pairWidth = measureCtx.measureText(prevCh + ch).width;
                     advance = (pairWidth - prevWidth) + spacing;
                 }
-                if (charAdvanceCache.size >= CHAR_ADVANCE_CACHE_LIMIT) {
+                if (charAdvanceCache.size >= charAdvanceCacheLimit) {
                     charAdvanceCache.delete(charAdvanceCache.keys().next().value);
                 }
                 charAdvanceCache.set(missing[m].key, advance);
@@ -1771,7 +2822,10 @@ Enjoy!! :D
                     if (spaceIdx !== -1 && spaceIdx < currentLine.length - 1) {
                         const nextLineInitial = currentLine.splice(spaceIdx + 1);
                         let nextLineWidth = 0;
-                        for (let k = 0; k < nextLineInitial.length; k++) nextLineWidth += nextLineInitial[k]._width;
+                        for (let k = 0; k < nextLineInitial.length; k++) {
+                            nextLineWidth += nextLineInitial[k]._width;
+                            if (nextLineInitial[k]._trailingCollapse) nextLineWidth += nextLineInitial[k]._trailingCollapse;
+                        }
                         currentLineWidth -= nextLineWidth;
 
                         lines.push(currentLine);
@@ -1792,6 +2846,7 @@ Enjoy!! :D
 
                 currentLine.push(rc);
                 currentLineWidth += w;
+                if (rc._trailingCollapse) currentLineWidth += rc._trailingCollapse;
             }
 
             if (currentLine.length > 0) {
@@ -1826,14 +2881,16 @@ Enjoy!! :D
                 run.positions = [];
                 let charX = 0;
                 for (let i = 0; i < run.chars.length; i++) {
-                    const w = run.chars[i]._width;
+                    const rc = run.chars[i];
+                    const w = rc._width;
                     run.positions.push({
                         shapedX: charX,
                         advance: w
                     });
-                    addTagIndex(charsByTag, run.startIndex + i, run.chars[i].tags);
-                    charX += w;
-                    runStartX += w;
+                    addTagIndex(charsByTag, run.startIndex + i, rc.tags);
+                    const cursorAdvance = rc._trailingCollapse ? w + rc._trailingCollapse : w;
+                    charX += cursorAdvance;
+                    runStartX += cursorAdvance;
                 }
                 run.runWidth = runStartX - run.runStartX;
             }
@@ -1849,12 +2906,32 @@ Enjoy!! :D
             }
         }
 
+        let maxShadowExtent = 0;
+        for (const rc of richChars) {
+            const charShadow = rc.shadow;
+            if (!charShadow) continue;
+            const extentX = Scratch.Cast.toNumber(charShadow.blur) + Math.abs(Scratch.Cast.toNumber(charShadow.offsetX));
+            const extentY = Scratch.Cast.toNumber(charShadow.blur) + Math.abs(Scratch.Cast.toNumber(charShadow.offsetY));
+            if (extentX > maxShadowExtent) maxShadowExtent = extentX;
+            if (extentY > maxShadowExtent) maxShadowExtent = extentY;
+        }
+
+        let maxBorderExtent = 0;
+        for (const rc of richChars) {
+            const charBorder = rc.border;
+            if (!charBorder) continue;
+            const size = Scratch.Cast.toNumber(charBorder.size);
+            if (size > maxBorderExtent) maxBorderExtent = size;
+        }
+
         return {
             lines,
             lineWidths,
             maxWidth,
             lineRuns,
-            charsByTag
+            charsByTag,
+            maxShadowExtent,
+            maxBorderExtent
         };
     }
 
@@ -1875,6 +2952,16 @@ Enjoy!! :D
         return key;
     }
 
+    function getGlyphShapeForFontStyle(char, fontStyleObj) {
+        return getGlyphShape(
+            char,
+            fontStyleObj['font-family'],
+            fontStyleObj['font-size'],
+            fontStyleObj['font-weight'],
+            fontStyleObj['font-style']
+        );
+    }
+
     function computeFinalGradientSpans(state, measured) {
         const spans = new Map();
         if (!measured.lines.length) return spans;
@@ -1885,28 +2972,25 @@ Enjoy!! :D
 
         let groupOccurrenceIndex = null;
         let groupChars = null;
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let box = emptyAABB();
 
         const flushGroup = () => {
             if (!groupChars || !groupChars.length) return;
-            if (isFinite(minX) && isFinite(maxX) && isFinite(minY) && isFinite(maxY)) {
-                const spanW = Math.max(1, maxX - minX);
-                const spanH = Math.max(1, maxY - minY);
+            if (aabbIsFinite(box)) {
+                const spanW = Math.max(1, box.maxX - box.minX);
+                const spanH = Math.max(1, box.maxY - box.minY);
                 for (const gc of groupChars) {
                     spans.set(gc.charIndex, {
                         spanW,
                         spanH,
-                        localOffsetXPx: gc.px - minX,
-                        localOffsetYPx: gc.py - minY
+                        localOffsetXPx: gc.px - box.minX,
+                        localOffsetYPx: gc.py - box.minY
                     });
                 }
             }
             groupOccurrenceIndex = null;
             groupChars = null;
-            minX = Infinity;
-            maxX = -Infinity;
-            minY = Infinity;
-            maxY = -Infinity;
+            box = emptyAABB();
         };
 
         for (let li = 0; li < measured.lines.length; li++) {
@@ -1925,10 +3009,6 @@ Enjoy!! :D
 
             for (const run of runs) {
                 const runOriginX = lineX + run.runStartX;
-                const fontFamily = run.fontStyle['font-family'];
-                const fontSize = run.fontStyle['font-size'];
-                const fontWeight = run.fontStyle['font-weight'];
-                const fontStyle = run.fontStyle['font-style'];
 
                 for (let i = 0; i < run.chars.length; i++) {
                     const rc = run.chars[i];
@@ -1953,7 +3033,7 @@ Enjoy!! :D
                         continue;
                     }
 
-                    const shape = getGlyphShape(ch, fontFamily, fontSize, fontWeight, fontStyle);
+                    const shape = getGlyphShapeForFontStyle(ch, run.fontStyle);
                     if (!shape) continue;
 
                     const charCenterX = runOriginX + pos.shapedX + pos.advance / 2;
@@ -1962,19 +3042,17 @@ Enjoy!! :D
                     const baselineYFromLineCenter = (shape.fontAscentEm - shape.fontDescentEm) / 2;
                     const drawXEm = charCenterX - advanceCenterXEm;
                     const drawYEm = (charCenterY + baselineYFromLineCenter) - shape.baselineOriginYEm;
-                    const px = Math.round(drawXEm * DEST_SCALE);
-                    const py = Math.round(drawYEm * DEST_SCALE);
+                    const px = Math.round(drawXEm * destScale);
+                    const py = Math.round(drawYEm * destScale);
                     const w = shape.canvas.width;
                     const h = shape.canvas.height;
-                    const padYPx = Math.round((shape.baselineOriginYEm - shape.fontAscentEm) * DEST_SCALE);
+                    const padYPx = Math.round((shape.baselineOriginYEm - shape.fontAscentEm) * destScale);
                     const inkTop = py + padYPx;
                     const inkBottom = py + h - padYPx;
 
                     groupChars.push({ charIndex, px, py });
-                    minX = Math.min(minX, px);
-                    maxX = Math.max(maxX, px + w);
-                    minY = Math.min(minY, inkTop);
-                    maxY = Math.max(maxY, inkBottom);
+                    expandAABBToPoint(box, px, inkTop);
+                    expandAABBToPoint(box, px + w, inkBottom);
                 }
             }
         }
@@ -2042,16 +3120,45 @@ Enjoy!! :D
             hash = (hash * 33) ^ ((op.letterSpacing * 100) | 0);
             hash = (hash * 33) ^ (op.underline ? 1 : 0);
             hash = (hash * 33) ^ (op.strike ? 1 : 0);
+            hash = (hash * 33) ^ ((op.blur * 100) | 0);
+            hash = (hash * 33) ^ ((op.layer * 100) | 0);
+            hash = (hash * 33) ^ (op.fx ? op.fx.hash : 0x7e7e);
             hash = fingerprintMaskInto(hash, op.mask);
             hash = fingerprintGradientInto(hash, op.gradient);
+            hash = fingerprintShadowInto(hash, op.shadow);
+            hash = fingerprintBorderInto(hash, op.border);
         }
         return hash | 0;
+    }
+
+    function fingerprintBorderInto(hash, border) {
+        if (border) {
+            hash = (hash * 33) ^ hashString(border.color);
+            hash = (hash * 33) ^ ((border.opacity * 100) | 0);
+            hash = (hash * 33) ^ ((border.size * 100) | 0);
+        } else {
+            hash = (hash * 33) ^ 0x3c3c;
+        }
+        return hash;
+    }
+
+    function fingerprintShadowInto(hash, shadow) {
+        if (shadow) {
+            hash = (hash * 33) ^ hashString(shadow.color);
+            hash = (hash * 33) ^ ((shadow.opacity * 100) | 0);
+            hash = (hash * 33) ^ ((shadow.blur * 100) | 0);
+            hash = (hash * 33) ^ ((shadow.offsetX * 100) | 0);
+            hash = (hash * 33) ^ ((shadow.offsetY * 100) | 0);
+        } else {
+            hash = (hash * 33) ^ 0x5a5a;
+        }
+        return hash;
     }
 
     function fingerprintGradientInto(hash, gradient) {
         if (gradient) {
             hash = (hash * 33) ^ ((gradient.angle * 100) | 0);
-            hash = (hash * 33) ^ hashString(gradient.type || GRADIENT_TYPE_LINEAR);
+            hash = (hash * 33) ^ hashString(gradient.type || gradientTypeLinear);
             for (let c = 0; c < gradient.colors.length; c++) {
                 hash = (hash * 33) ^ hashString(gradient.colors[c]);
             }
@@ -2338,9 +3445,209 @@ Enjoy!! :D
         ensureRenderFlushTicker();
     }
 
+    let preDrawFlushActive = false;
+
+    function ensurePreDrawHook() {
+        const renderer = runtime.renderer;
+        if (!renderer || typeof renderer.draw !== 'function') return false;
+        if (!renderer.draw.irisTextWrapped) {
+            const originalDraw = renderer.draw;
+            const wrappedDraw = function () {
+                const hook = renderer.irisTextPreDraw;
+                if (hook) {
+                    try {
+                        hook();
+                    } catch (e) {
+                        console.error('[Iris Text]', e);
+                    }
+                }
+                return originalDraw.apply(this, arguments);
+            };
+            wrappedDraw.irisTextWrapped = true;
+            renderer.draw = wrappedDraw;
+        }
+        renderer.irisTextPreDraw = preDrawUpdate;
+        preDrawFlushActive = true;
+        return true;
+    }
+
     function scheduleRender(target) {
+        if (!preDrawFlushActive) ensurePreDrawHook();
         pendingRenderTargets.add(target);
         requestRenderFlush();
+    }
+
+    const cullEmpty = { empty: true };
+    const cullMarginMin = 48;
+    const cullMarginFactor = 0.35;
+    const cullShapeEffects = ['horizontal_shear', 'vertical_shear', 'repeat_x', 'repeat_y'];
+    let cullEmptyCanvas = null;
+
+    function getStageBounds() {
+        const renderer = runtime.renderer;
+        const left = renderer ? renderer._xLeft : NaN;
+        const right = renderer ? renderer._xRight : NaN;
+        const bottom = renderer ? renderer._yBottom : NaN;
+        const top = renderer ? renderer._yTop : NaN;
+        if (Number.isFinite(left) && Number.isFinite(right) && Number.isFinite(bottom) && Number.isFinite(top) && right > left && top > bottom) {
+            return { left, right, bottom, top };
+        }
+        const width = runtime.stageWidth > 0 ? runtime.stageWidth : 480;
+        const height = runtime.stageHeight > 0 ? runtime.stageHeight : 360;
+        return { left: -width / 2, right: width / 2, bottom: -height / 2, top: height / 2 };
+    }
+
+    function getDrawableTransform(target) {
+        const renderer = runtime.renderer;
+        if (!renderer || !renderer._allDrawables || target.drawableID === undefined || target.drawableID === null) return null;
+        const drawable = renderer._allDrawables[target.drawableID];
+        if (!drawable || !drawable._position || !drawable._scale || !Number.isFinite(drawable._direction)) return null;
+        return {
+            x: drawable._position[0],
+            y: drawable._position[1],
+            direction: drawable._direction,
+            scaleX: drawable._scale[0],
+            scaleY: drawable._scale[1],
+            visible: drawable._visible !== false
+        };
+    }
+
+    function hasShapeChangingEffects(target) {
+        const effects = target.effects;
+        if (!effects) return false;
+        for (let i = 0; i < cullShapeEffects.length; i++) {
+            if (effects[cullShapeEffects[i]]) return true;
+        }
+        return false;
+    }
+
+    function computeNeededDocRegion(target, anchorX, anchorY) {
+        const transform = getDrawableTransform(target);
+        if (!transform || hasShapeChangingEffects(target)) return null;
+        const scaleX = transform.scaleX / 100;
+        const scaleY = transform.scaleY / 100;
+        if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || !Number.isFinite(transform.x) || !Number.isFinite(transform.y)) return null;
+        if (Math.abs(scaleX) < 1e-9 || Math.abs(scaleY) < 1e-9) return cullEmpty;
+        const stage = getStageBounds();
+        const angle = -((90 - transform.direction) * Math.PI / 180);
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (let corner = 0; corner < 4; corner++) {
+            const dx = (corner & 1 ? stage.right : stage.left) - transform.x;
+            const dy = (corner & 2 ? stage.top : stage.bottom) - transform.y;
+            const px = anchorX + (dx * cos - dy * sin) / scaleX;
+            const py = anchorY - (dx * sin + dy * cos) / scaleY;
+            if (px < minX) minX = px;
+            if (px > maxX) maxX = px;
+            if (py < minY) minY = py;
+            if (py > maxY) maxY = py;
+        }
+        if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)) return null;
+        return { x0: minX, y0: minY, x1: maxX, y1: maxY, visible: transform.visible };
+    }
+
+    function shadowReach(settings) {
+        if (!settings) return 0;
+        const blur = Math.max(0, Scratch.Cast.toNumber(settings.blur));
+        const offsetX = Scratch.Cast.toNumber(settings.offsetX);
+        const offsetY = Scratch.Cast.toNumber(settings.offsetY);
+        return blur * 2 + Math.hypot(offsetX, offsetY) + 2;
+    }
+
+    function borderReach(settings) {
+        if (!settings) return 0;
+        return Math.max(0, Scratch.Cast.toNumber(settings.size)) + 2;
+    }
+
+    function computeCull(target, state, docW, docH, anchorX, anchorY) {
+        const needed = computeNeededDocRegion(target, anchorX, anchorY);
+        if (needed === null) return { unknown: true, anchorX, anchorY, docW, docH };
+        const region = {
+            empty: false,
+            x0: 0,
+            y0: 0,
+            x1: docW,
+            y1: docH,
+            docW,
+            docH,
+            anchorX,
+            anchorY,
+            globalShadowReach: state.textShadow.enabled ? shadowReach(state.textShadow) : 0,
+            globalBorderReach: state.textBorder.enabled ? borderReach(state.textBorder) : 0
+        };
+        if (needed === cullEmpty || needed.x1 < 0 || needed.x0 > docW || needed.y1 < 0 || needed.y0 > docH) {
+            region.empty = true;
+            region.x1 = 0;
+            region.y1 = 0;
+            return region;
+        }
+        const margin = Math.max(cullMarginMin, cullMarginFactor * Math.max(needed.x1 - needed.x0, needed.y1 - needed.y0));
+        region.x0 = Math.max(0, Math.floor(needed.x0 - margin));
+        region.y0 = Math.max(0, Math.floor(needed.y0 - margin));
+        region.x1 = Math.min(docW, Math.ceil(needed.x1 + margin));
+        region.y1 = Math.min(docH, Math.ceil(needed.y1 + margin));
+        if (region.x0 <= 0 && region.y0 <= 0 && region.x1 >= docW && region.y1 >= docH) return null;
+        return region;
+    }
+
+    function opMayBeVisible(op, cull) {
+        const size = op.font['font-size'];
+        const scale = op.scale != null ? Math.abs(op.scale) : 1;
+        let reach = Math.max(size * 1.3, Math.abs(op.width || 0)) * Math.max(1, scale);
+        reach += op.shadow ? shadowReach(op.shadow) : cull.globalShadowReach;
+        reach += op.border && Scratch.Cast.toNumber(op.border.size) > 0 ? borderReach(op.border) : cull.globalBorderReach;
+        if (op.blur > 0) reach += (op.blur / 100) * size * 1.5;
+        return op.x + reach >= cull.x0 && op.x - reach <= cull.x1 && op.y + reach >= cull.y0 && op.y - reach <= cull.y1;
+    }
+
+    function cullNeedsRerender(target, state) {
+        const rendered = state.cullRegion;
+        if (!rendered) return false;
+        const needed = computeNeededDocRegion(target, rendered.anchorX, rendered.anchorY);
+        if (rendered.unknown) return needed !== null;
+        if (needed === null) return true;
+        if (needed === cullEmpty || !needed.visible) return false;
+        const x0 = Math.max(0, needed.x0);
+        const y0 = Math.max(0, needed.y0);
+        const x1 = Math.min(rendered.docW, needed.x1);
+        const y1 = Math.min(rendered.docH, needed.y1);
+        if (x1 < x0 || y1 < y0) return false;
+        if (rendered.empty) return true;
+        return x0 < rendered.x0 - 0.5 || y0 < rendered.y0 - 0.5 || x1 > rendered.x1 + 0.5 || y1 > rendered.y1 + 0.5;
+    }
+
+    function refreshCulledTargets() {
+        const targets = runtime.targets;
+        if (!targets) return;
+        for (let i = 0; i < targets.length; i++) {
+            const target = targets[i];
+            if (typeof target.getCustomState !== 'function') continue;
+            const state = target.getCustomState(stateKey);
+            if (!state || !state.cullOffscreen || !state.visible || state.skinId === null || !state.cullRegion) continue;
+            if (state.renderInFlight || glyphWorker.waiters.has(target) || pendingRenderTargets.has(target)) continue;
+            if (!cullNeedsRerender(target, state)) continue;
+            state.paintFingerprint = null;
+            state.paintDirty = true;
+            renderTarget(target);
+        }
+    }
+
+    function preDrawUpdate() {
+        flushPendingRenders();
+        refreshCulledTargets();
+    }
+
+    function getEmptyCullCanvas() {
+        if (!cullEmptyCanvas) {
+            cullEmptyCanvas = document.createElement('canvas');
+            cullEmptyCanvas.width = 1;
+            cullEmptyCanvas.height = 1;
+        }
+        return cullEmptyCanvas;
     }
 
     function flushPendingRenders() {
@@ -2363,9 +3670,17 @@ Enjoy!! :D
     }
 
     function scheduleTextRender(target) {
-        pendingRenderTargets.delete(target);
         const state = getState(target);
-        if (state.visible) renderTarget(target);
+        if (!state.visible) {
+            pendingRenderTargets.delete(target);
+            return;
+        }
+        if (preDrawFlushActive || ensurePreDrawHook()) {
+            scheduleRender(target);
+            return;
+        }
+        pendingRenderTargets.delete(target);
+        renderTarget(target);
     }
 
     function schedulePaint(target, state) {
@@ -2386,7 +3701,7 @@ Enjoy!! :D
         return getPaintOpsGeometryKey(state, layoutKey) + '\u0004' + state.charMasksVersion + '\u0004' + state.charTransformsVersion;
     }
 
-    const EMPTY_OVERRIDE = {
+    const emptyOverride = {
         x: 0,
         y: 0,
         rotation: 0,
@@ -2408,7 +3723,130 @@ Enjoy!! :D
         }
     }
 
+    const emptyPerspectiveTransform = { offsetX: 0, offsetY: 0, rotation: 0, scale: 1 };
+    const emptyPerspectiveGeometry = { maxShiftX: 0, maxShiftY: 0, maxCharacterExtent: 0 };
+
+    function buildPerspectiveGeometry(lineRuns) {
+        const lineGeometries = new Array(lineRuns.length);
+
+        for (let lineIndex = 0; lineIndex < lineRuns.length; lineIndex++) {
+            const lineGeometry = new Map();
+            for (const run of lineRuns[lineIndex]) {
+                for (let i = 0; i < run.chars.length; i++) {
+                    const rc = run.chars[i];
+                    if (!rc.perspectives || !rc.perspectives.length) continue;
+                    const index = run.startIndex + i;
+                    const advance = run.positions[i].advance;
+                    for (const perspective of rc.perspectives) {
+                        let geometry = lineGeometry.get(perspective);
+                        if (!geometry) {
+                            geometry = {
+                                offsets: new Map(),
+                                width: 0,
+                                firstOffset: 0,
+                                lastOffset: 0,
+                                lastIndex: index,
+                                lastAdvance: advance
+                            };
+                            lineGeometry.set(perspective, geometry);
+                        }
+                        const centerOffset = geometry.width + advance / 2;
+                        if (geometry.offsets.size === 0) geometry.firstOffset = centerOffset;
+                        geometry.lastOffset = centerOffset;
+                        geometry.lastIndex = index;
+                        geometry.lastAdvance = advance;
+                        geometry.offsets.set(index, centerOffset);
+                        geometry.width += advance;
+                    }
+                }
+            }
+            if (lineGeometry.size) lineGeometries[lineIndex] = lineGeometry;
+        }
+
+        if (!lineGeometries.some(Boolean)) return emptyPerspectiveGeometry;
+
+        let maxShiftX = 0;
+        let maxShiftY = 0;
+        let maxCharacterExtent = 0;
+
+        for (let lineIndex = 0; lineIndex < lineRuns.length; lineIndex++) {
+            const lineGeometry = lineGeometries[lineIndex];
+            if (!lineGeometry) continue;
+            let lineShiftX = 0;
+            let lineShiftY = 0;
+            let trailingShiftX = 0;
+            for (const run of lineRuns[lineIndex]) {
+                for (let i = 0; i < run.chars.length; i++) {
+                    const rc = run.chars[i];
+                    const index = run.startIndex + i;
+                    let shiftX = 0;
+                    let shiftY = 0;
+                    let perspectiveRotation = 0;
+                    let scale = 1;
+                    for (const perspective of rc.perspectives || []) {
+                        const geometry = lineGeometry.get(perspective);
+                        if (!geometry) continue;
+                        const centerOffset = geometry.offsets.get(index);
+                        if (!Number.isFinite(centerOffset)) continue;
+                        const centerRange = geometry.lastOffset - geometry.firstOffset;
+                        const progress = geometry.offsets.size > 1 && centerRange > 0 ?
+                            (centerOffset - geometry.firstOffset) / centerRange : 1;
+                        const projectedOffset = centerRange > 0 ?
+                            centerRange * progress / (1 + perspective.scaleStrength * progress) :
+                            0;
+                        shiftX += projectedOffset - centerRange * progress +
+                            perspective.x * progress;
+                        shiftY += perspective.y * progress;
+                        perspectiveRotation += perspective.rotation * progress;
+                        scale *= 1 / Math.pow(1 + perspective.scaleStrength * progress, 2);
+                    }
+                    shiftX += trailingShiftX;
+                    if (!Number.isFinite(shiftX) || !Number.isFinite(shiftY) ||
+                        !Number.isFinite(perspectiveRotation) || !Number.isFinite(scale)) {
+                        continue;
+                    }
+                    rc.perspectiveTransform = {
+                        offsetX: shiftX,
+                        offsetY: shiftY,
+                        rotation: perspectiveRotation,
+                        scale
+                    };
+                    lineShiftX = Math.max(lineShiftX, Math.abs(shiftX));
+                    lineShiftY = Math.max(lineShiftY, Math.abs(shiftY));
+                    maxCharacterExtent = Math.max(maxCharacterExtent, rc.size * scale);
+
+                    let completedShiftX = 0;
+                    for (const perspective of rc.perspectives || []) {
+                        const geometry = lineGeometry.get(perspective);
+                        if (!geometry || geometry.lastIndex !== index) continue;
+                        const centerRange = geometry.lastOffset - geometry.firstOffset;
+                        const endScale = 1 / Math.pow(1 + perspective.scaleStrength, 2);
+                        const centerShift = (centerRange > 0 ?
+                            centerRange / (1 + perspective.scaleStrength) - centerRange : 0) +
+                            perspective.x;
+                        completedShiftX += centerShift +
+                            (endScale - 1) * geometry.lastAdvance / 2;
+                    }
+                    trailingShiftX += completedShiftX;
+                }
+            }
+            maxShiftX = Math.max(maxShiftX, lineShiftX);
+            maxShiftY = Math.max(maxShiftY, lineShiftY);
+        }
+
+        return { maxShiftX, maxShiftY, maxCharacterExtent };
+    }
+
     function renderTarget(target) {
+        const startTime = perfStart();
+        try {
+            return renderTargetNow(target);
+        } finally {
+            perfEnd('render.total', startTime);
+        }
+    }
+
+    function renderTargetNow(target) {
         const state = getState(target);
         if (!state.visible) return;
         if (state.renderInFlight) {
@@ -2423,6 +3861,7 @@ Enjoy!! :D
             const richChars = parseRichText(state.rawText, state.baseStyle);
             applyCharacterStyleOverrides(richChars, state.charStyleOverrides);
             const families = richChars.families;
+            state.layoutFamilies = families;
             let fontsPending = false;
             for (const family of families) {
                 if (!loadedDocumentFonts.has(family)) fontsPending = true;
@@ -2431,7 +3870,10 @@ Enjoy!! :D
             if (fontsPending && !state.hasPaintedOnce) {
                 return;
             }
+            ensureFontCoverage(richChars);
+            const layoutStart = perfStart();
             const measured = measureRichText(glyphMeasureCtx, richChars, state);
+            perfEnd('render.layout', layoutStart);
             layout = measured;
             state.shapeKey = shapeKey;
             state.layout = layout;
@@ -2442,20 +3884,42 @@ Enjoy!! :D
             lines,
             lineWidths,
             maxWidth,
-            lineRuns
+            lineRuns,
+            maxShadowExtent,
+            maxBorderExtent
         } = layout;
+        let perspectiveGeometry = layout.perspectiveGeometry;
+        if (!perspectiveGeometry) {
+            perspectiveGeometry = buildPerspectiveGeometry(lineRuns);
+            layout.perspectiveGeometry = perspectiveGeometry;
+        }
 
         const lineHeight = state.baseStyle.size * state.lineSpacing;
         const totalHeight = lines.length * lineHeight;
 
         const decorationPad = Math.max(
             0,
-            Scratch.Cast.toNumber(state.textBackground.padding) || 0,
-            Scratch.Cast.toNumber(state.textBorder.size) || 0,
-            (Scratch.Cast.toNumber(state.textShadow.blur) || 0) + Math.abs(Scratch.Cast.toNumber(state.textShadow.offsetX) || 0),
-            (Scratch.Cast.toNumber(state.textShadow.blur) || 0) + Math.abs(Scratch.Cast.toNumber(state.textShadow.offsetY) || 0)
+            Scratch.Cast.toNumber(state.textBackground.padding),
+            Scratch.Cast.toNumber(state.textBackground.padding) + Scratch.Cast.toNumber(state.textBackgroundBorder.size),
+            Scratch.Cast.toNumber(state.textBorder.size),
+            Scratch.Cast.toNumber(state.textShadow.blur) + Math.abs(Scratch.Cast.toNumber(state.textShadow.offsetX)),
+            Scratch.Cast.toNumber(state.textShadow.blur) + Math.abs(Scratch.Cast.toNumber(state.textShadow.offsetY)),
+            maxShadowExtent || 0,
+            maxBorderExtent || 0
         );
-        const pad = Math.max(64, state.baseStyle.size * 2, decorationPad + state.baseStyle.size);
+        const basePad = Math.max(
+            64,
+            state.baseStyle.size * 2,
+            decorationPad + state.baseStyle.size
+        );
+        const padX = Math.max(
+            basePad,
+            perspectiveGeometry.maxShiftX + perspectiveGeometry.maxCharacterExtent + decorationPad
+        );
+        const padY = Math.max(
+            basePad,
+            perspectiveGeometry.maxShiftY + perspectiveGeometry.maxCharacterExtent + decorationPad
+        );
 
         ensureTypingBox(state);
         let effectiveMaxWidth = state.maxWidth && state.maxWidth > 0 ? state.maxWidth : maxWidth;
@@ -2463,12 +3927,43 @@ Enjoy!! :D
         if (state.typingBoxWidth > effectiveMaxWidth) effectiveMaxWidth = state.typingBoxWidth;
         if (state.typingBoxHeight > effectiveMaxHeight) effectiveMaxHeight = state.typingBoxHeight;
 
-        const docW = Math.ceil(effectiveMaxWidth + pad * 2);
-        const docH = Math.ceil(effectiveMaxHeight + pad * 2);
+        const docW = Math.ceil(effectiveMaxWidth + padX * 2);
+        const docH = Math.ceil(effectiveMaxHeight + padY * 2);
 
         const originX = docW / 2;
-        const originY = state.growDownwardOnly ? (pad + totalHeight / 2) : docH / 2;
-        const anchorY = state.growDownwardOnly ? (pad + lineHeight / 2) : originY;
+        const originY = state.growDownwardOnly ? (padY + totalHeight / 2) : docH / 2;
+        const anchorY = state.growDownwardOnly ? (padY + lineHeight / 2) : originY;
+
+        let textBoxOffsetX = 0;
+        let textBoxWidth = maxWidth;
+        if (lineWidths.length > 0) {
+            const typingBoxLineWidths = state.typingBoxLineWidths;
+            const isFinalTypingLine = !!typingBoxLineWidths && typingBoxLineWidths.length === lines.length;
+            let textBoxMinX = Infinity;
+            let textBoxMaxX = -Infinity;
+            for (let li = 0; li < lineWidths.length; li++) {
+                const lineW = lineWidths[li];
+                const centerLineW = isFinalTypingLine ? typingBoxLineWidths[li] : lineW;
+                let effectiveLineW = lineW;
+                if (state.align === 'justify' && li < lineWidths.length - 1 && effectiveMaxWidth > lineW) {
+                    effectiveLineW = effectiveMaxWidth;
+                }
+                let lineMinX;
+                if (state.align === 'left' || state.align === 'justify') {
+                    lineMinX = -effectiveMaxWidth / 2;
+                } else if (state.align === 'right') {
+                    lineMinX = effectiveMaxWidth / 2 - centerLineW;
+                    effectiveLineW = lineW;
+                } else {
+                    lineMinX = -centerLineW / 2;
+                    effectiveLineW = lineW;
+                }
+                textBoxMinX = Math.min(textBoxMinX, lineMinX);
+                textBoxMaxX = Math.max(textBoxMaxX, lineMinX + effectiveLineW);
+            }
+            textBoxOffsetX = (textBoxMinX + textBoxMaxX) / 2;
+            textBoxWidth = textBoxMaxX - textBoxMinX;
+        }
 
         const geometryKey = getPaintOpsGeometryKey(state, layoutKey) + '\u0004' + docW + '\u0004' + docH + '\u0004' + (state.growDownwardOnly ? 1 : 0);
         const paintOpsKey = geometryKey + '\u0004' + state.charMasksVersion + '\u0004' + state.charTransformsVersion;
@@ -2548,15 +4043,20 @@ Enjoy!! :D
                         const pos = run.positions[i];
                         const index = run.startIndex + i;
                         const o = run.hasOverride ?
-                            (state.charOverrides[index] || EMPTY_OVERRIDE) :
-                            EMPTY_OVERRIDE;
+                            (state.charOverrides[index] || emptyOverride) :
+                            emptyOverride;
 
+                        const perspective = rc.perspectiveTransform || emptyPerspectiveTransform;
+                        const perspectiveX = perspective.offsetX;
+                        const perspectiveY = perspective.offsetY;
+                        const perspectiveRotation = perspective.rotation;
+                        const perspectiveScale = perspective.scale;
                         const charCenterX = runOriginX + pos.shapedX + pos.advance / 2 +
-                            spacesBefore * justifyExtra + o.x;
-                        const charCenterY = baseCenterY - o.y;
-                        const rotation = o.rotation || 0;
+                            spacesBefore * justifyExtra + o.x + perspectiveX;
+                        const charCenterY = baseCenterY - o.y - perspectiveY;
+                        const rotation = (o.rotation || 0) + perspectiveRotation;
                         const opacity = o.opacity == null ? 1 : o.opacity;
-                        const scale = o.scale == null ? 1 : o.scale;
+                        const scale = (o.scale == null ? 1 : o.scale) * perspectiveScale;
                         const ch = rc.char === ' ' ? '\u00A0' : rc.char;
                         const mask = state.charMasks[index] || null;
 
@@ -2573,12 +4073,17 @@ Enjoy!! :D
                         op.letterSpacing = letterSpacing;
                         op.underline = underline;
                         op.strike = strike;
-                        op.width = pos.advance;
+                        op.width = pos.advance * perspectiveScale;
                         op.mask = mask;
                         op.charIndex = index;
                         op.gradient = o.color ? null : (rc.gradient || null);
                         op.gradientSpanId = o.color ? null : (rc.gradientSpanId || null);
                         op.gradientOccurrenceIndex = o.color ? -1 : (rc.gradientOccurrenceIndex != null ? rc.gradientOccurrenceIndex : -1);
+                        op.blur = rc.blur || 0;
+                        op.shadow = rc.shadow || null;
+                        op.border = rc.border || null;
+                        op.layer = rc.layer || 0;
+                        op.fx = resolveEffectState(rc.effects, state.charEffects ? state.charEffects[index] : null);
                         paintOps.push(op);
 
                         if (rc.char === ' ') spacesBefore++;
@@ -2627,8 +4132,22 @@ Enjoy!! :D
             }
         }
 
+        const cullInfo = state.cullOffscreen ? computeCull(target, state, docW, docH, originX, anchorY != null ? anchorY : originY) : null;
+        const cull = cullInfo && !cullInfo.unknown ? cullInfo : null;
+        if (deferForWorkerGlyphs(target, state, paintOps, cull)) {
+            state.paintFingerprint = null;
+            return;
+        }
+        glyphWorker.waiters.delete(target);
+
         state.renderQueued = false;
-        compositeGlyphsAndPush(target, state, paintOps, docW, docH, effectiveMaxWidth, totalHeight, originX, originY, anchorY);
+        state.cullRegion = cullInfo;
+        state.cullBounds = cull ? { docW: cull.docW, docH: cull.docH, anchorX: cull.anchorX, anchorY: cull.anchorY } : null;
+        const compositeStart = perfStart();
+        compositeGlyphsAndPush(target, state, paintOps, docW, docH, textBoxWidth, totalHeight, textBoxOffsetX, originX, originY, anchorY, cull);
+        perfEnd('render.composite', compositeStart);
+        state.lastPaintAt = performance.now();
+        state.workerDeferrals = 0;
         state.paintDirty = false;
         state.hasPaintedOnce = true;
         state.renderInFlight = false;
@@ -2640,44 +4159,65 @@ Enjoy!! :D
         return Promise.resolve();
     }
 
-    function compositeGlyphsAndPush(target, state, paintOps, docW, docH, effectiveMaxWidth, totalHeight, originX, originY, anchorY) {
-        ensureRenderWorker();
+    const lastCompositeCrop = {
+        x: 0,
+        y: 0,
+        scale: glyphOversample
+    };
+
+    function compositeGlyphsAndPush(target, state, paintOps, docW, docH, textWidth, textHeight, textBoxOffsetX, originX, originY, anchorY, cull) {
+        if (cull && cull.empty) {
+            pushCanvasToDrawable(target, getEmptyCullCanvas(), docW, docH, originX, anchorY != null ? anchorY : originY, destScale);
+            return;
+        }
         const pinnedKeys = new Set();
         for (let i = 0; i < paintOps.length; i++) {
             const op = paintOps[i];
             if (op.text === '\u00A0' || op.text === '') continue;
+            if (cull && !opMayBeVisible(op, cull)) continue;
             pinnedKeys.add(glyphCacheKey(op.text, op.font['font-family'], op.font['font-size'], op.font['font-weight'], op.font['font-style']));
         }
-        framePinnedGlyphKeys = pinnedKeys;
-        let canvas = null;
+        pinGlyphKeysForFrame(pinnedKeys);
+        let canvas;
         try {
-            if (!glCompositorFailed) {
-                try {
-                    canvas = compositeGlyphsToCanvasWebGL2(state, paintOps, docW, docH, effectiveMaxWidth, totalHeight, originX, originY);
-                } catch (e) {
-                    canvas = null;
-                    glCompositorFailed = true;
-                }
-            }
-            if (!canvas) {
-                canvas = compositeGlyphsToCanvasCanvas2D(state, paintOps, docW, docH, effectiveMaxWidth, totalHeight, originX, originY);
-            }
+            canvas = compositeGlyphsToCanvasWebGL2(state, paintOps, docW, docH, textWidth, textHeight, textBoxOffsetX, originX, originY, cull);
         } finally {
-            framePinnedGlyphKeys = null;
+            unpinGlyphKeysForFrame(pinnedKeys);
         }
-        pushCanvasToDrawable(target, canvas, docW, docH, originX, anchorY != null ? anchorY : originY);
-        return Promise.resolve();
+        if (!canvas) {
+            if (!webglUnavailableLogged) {
+                webglUnavailableLogged = true;
+                console.error('[Iris Text] WebGL2 is not available in this environment; text cannot be rendered.');
+            }
+            return;
+        }
+        pushCanvasToDrawable(
+            target, canvas, docW, docH,
+            originX - lastCompositeCrop.x,
+            (anchorY != null ? anchorY : originY) - lastCompositeCrop.y,
+            lastCompositeCrop.scale
+        );
     }
 
     const loadedDocumentFonts = new Set();
     const pendingDocumentFonts = new Map();
-    const FONT_LOAD_MAX_RETRIES = 8;
-    const FONT_LOAD_RETRY_DELAY_MS = 150;
+    const fontLoadMaxRetries = 8;
+    const fontLoadRetryDelayMs = 150;
 
-    function rerenderVisibleTextTargets() {
+    function rerenderVisibleTextTargets(fonts) {
         for (const candidate of runtime.targets) {
-            const state = candidate.getCustomState(STATE_KEY);
+            const state = candidate.getCustomState(stateKey);
             if (!state || !state.visible) continue;
+            if (fonts && state.layoutFamilies instanceof Set) {
+                let usesFont = false;
+                for (const font of fonts) {
+                    if (state.layoutFamilies.has(font)) {
+                        usesFont = true;
+                        break;
+                    }
+                }
+                if (!usesFont) continue;
+            }
             state.shapeKey = null;
             state.layoutKey = null;
             state.layout = null;
@@ -2687,18 +4227,25 @@ Enjoy!! :D
     }
 
     let rerenderVisibleTextTargetsQueued = false;
+    let rerenderAllFonts = false;
+    const pendingRerenderFonts = new Set();
 
-    function requestRerenderVisibleTextTargets() {
+    function requestRerenderVisibleTextTargets(fontId) {
+        if (fontId === undefined) rerenderAllFonts = true;
+        else pendingRerenderFonts.add(fontId);
         if (rerenderVisibleTextTargetsQueued) return;
         rerenderVisibleTextTargetsQueued = true;
         Promise.resolve().then(() => {
             rerenderVisibleTextTargetsQueued = false;
-            rerenderVisibleTextTargets();
+            const fonts = rerenderAllFonts ? null : new Set(pendingRerenderFonts);
+            rerenderAllFonts = false;
+            pendingRerenderFonts.clear();
+            rerenderVisibleTextTargets(fonts);
         });
     }
 
-    const FONT_PROBE_TEXT = 'AaBbGgQqWwZz01@#';
-    const FONT_PROBE_CONTROL_FAMILIES = ['serif', 'sans-serif', 'monospace'];
+    const fontProbeText = 'AaBbGgQqWwZz01@#';
+    const fontProbeControlFamilies = ['serif', 'sans-serif', 'monospace'];
     let fontProbeCtx = null;
     let fontProbeControlWidths = null;
 
@@ -2712,19 +4259,19 @@ Enjoy!! :D
     function measureFontProbeWidth(fontFamilyCss) {
         const ctx = getFontProbeCtx();
         ctx.font = `16px ${fontFamilyCss}`;
-        return ctx.measureText(FONT_PROBE_TEXT).width;
+        return ctx.measureText(fontProbeText).width;
     }
 
     function getFontProbeControlWidths() {
         if (fontProbeControlWidths) return fontProbeControlWidths;
-        fontProbeControlWidths = FONT_PROBE_CONTROL_FAMILIES.map(measureFontProbeWidth);
+        fontProbeControlWidths = fontProbeControlFamilies.map(measureFontProbeWidth);
         return fontProbeControlWidths;
     }
 
     function isFontActuallyRendering(fontId) {
         const rawFamily = `"${fontId}"`;
         const controlWidths = getFontProbeControlWidths();
-        const testedWidths = FONT_PROBE_CONTROL_FAMILIES.map(fallback =>
+        const testedWidths = fontProbeControlFamilies.map(fallback =>
             measureFontProbeWidth(`${rawFamily}, ${fallback}`)
         );
         for (let i = 0; i < testedWidths.length; i++) {
@@ -2737,18 +4284,23 @@ Enjoy!! :D
         attempt = attempt || 0;
         if (!document.fonts || loadedDocumentFonts.has(fontId) || pendingDocumentFonts.has(fontId)) return;
         const fontSpec = `16px ${cssFontFamily(fontId)}`;
+        const loadStart = perfStart();
         const promise = document.fonts.load(fontSpec, 'M')
             .catch(() => [])
-            .then(() => {
+            .then(loadedFaces => {
+                perfEnd('font.load', loadStart);
+                for (const face of loadedFaces) knownLoadedFontFaces.add(face);
                 pendingDocumentFonts.delete(fontId);
                 const apiReady = typeof document.fonts.check === 'function' ? document.fonts.check(fontSpec, 'M') : true;
                 const ready = apiReady && isFontActuallyRendering(fontId);
                 if (ready) {
                     loadedDocumentFonts.add(fontId);
                     invalidateGlyphCacheForFamily(cssFontFamily(fontId));
-                    requestRerenderVisibleTextTargets();
-                } else if (attempt < FONT_LOAD_MAX_RETRIES) {
-                    setTimeout(() => ensureDocumentFont(fontId, attempt + 1), FONT_LOAD_RETRY_DELAY_MS);
+                    charAdvanceCache.clear();
+                    requestRerenderVisibleTextTargets(fontId);
+                    registerWorkerFont(fontId);
+                } else if (attempt < fontLoadMaxRetries) {
+                    setTimeout(() => ensureDocumentFont(fontId, attempt + 1), fontLoadRetryDelayMs);
                 } else {
                     loadedDocumentFonts.add(fontId);
                 }
@@ -2756,1247 +4308,101 @@ Enjoy!! :D
         pendingDocumentFonts.set(fontId, promise);
     }
 
-    const DEST_SCALE = GLYPH_OVERSAMPLE;
+    const fontCharsChecked = new Map();
+    const knownLoadedFontFaces = new WeakSet();
 
-    const WORKER_SOURCE = `
-const GRADIENT_TYPE_LINEAR = '${GRADIENT_TYPE_LINEAR}';
-const GRADIENT_TYPE_RADIAL = '${GRADIENT_TYPE_RADIAL}';
-const GRADIENT_TYPE_CONIC = '${GRADIENT_TYPE_CONIC}';
-const WIPE_DIRECTION_BOTTOM_UP = '${WIPE_DIRECTION_BOTTOM_UP}';
-const WIPE_DIRECTION_LEFT_RIGHT = '${WIPE_DIRECTION_LEFT_RIGHT}';
-const WIPE_DIRECTION_UP_DOWN = '${WIPE_DIRECTION_UP_DOWN}';
-const WIPE_DIRECTION_RIGHT_LEFT = '${WIPE_DIRECTION_RIGHT_LEFT}';
-
-const DEST_SCALE = 3;
-const TINT_CACHE_LIMIT = 512;
-const SHADOW_CACHE_LIMIT = 512;
-const STENCIL_CACHE_LIMIT = 400;
-const CANVAS_SIZE_BUCKET = 32;
-const GLYPH_CACHE_LIMIT = 2000;
-
-// defined here cuz this is a worker and im not sure if workers can access Scratch
-const Scratch = {
-    Cast: {
-        toNumber(value) {
-            const n = Number(value);
-            return n === n ? n : 0;
-        }
-    }
-};
-
-const glyphShapesByKey = new Map();
-
-const glyphShapeCanvasPool = [];
-const tintedCanvasPool = [];
-const stencilCanvasPool = [];
-const GENERIC_POOL_LIMIT = 256;
-
-function acquirePooledCanvas(pool, w, h) {
-    const canvas = pool.pop() || new OffscreenCanvas(w, h);
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
-    return canvas;
-}
-
-function releasePooledCanvas(pool, canvas) {
-    if (canvas && pool.length < GENERIC_POOL_LIMIT) pool.push(canvas);
-}
-
-function bucketSize(n) {
-    return Math.max(CANVAS_SIZE_BUCKET, Math.ceil(n / CANVAS_SIZE_BUCKET) * CANVAS_SIZE_BUCKET);
-}
-
-const GLOBAL_SHADOW_CANVAS_LIMIT = 256;
-const globalShadowLRU = new Map();
-let shadowGlobalKeySeq = 1;
-
-const sharedShadowSurface = (() => {
-    const canvas = new OffscreenCanvas(1, 1);
-    return {
-        canvas,
-        ctx: canvas.getContext('2d')
-    };
-})();
-
-function releaseShadowCapture(capture) {
-    if (capture && capture !== sharedShadowSurface.canvas && typeof capture.close === 'function') capture.close();
-}
-
-function releaseGlyphOwnedCanvases(shape) {
-    releasePooledCanvas(glyphShapeCanvasPool, shape.canvas);
-    if (shape.tinted) {
-        for (const tintedCanvas of shape.tinted.values()) {
-            releasePooledCanvas(tintedCanvasPool, tintedCanvas);
-        }
-    }
-    if (shape.shadows) {
-        for (const shadowEntry of shape.shadows.values()) {
-            globalShadowLRU.delete(shadowEntry.globalKey);
-            releaseShadowCapture(shadowEntry.canvas);
-        }
-    }
-    const stencil = maskGlyphStencilCache.get(shape);
-    if (stencil) {
-        maskGlyphStencilCache.delete(shape);
-        releasePooledCanvas(stencilCanvasPool, stencil);
-    }
-}
-
-function getGlyphShape(glyphKey) {
-    return glyphShapesByKey.get(glyphKey) || null;
-}
-
-function tintGlyph(shape, color) {
-    let tintedCanvas = shape.tinted.get(color);
-    if (tintedCanvas) return tintedCanvas;
-
-    tintedCanvas = acquirePooledCanvas(tintedCanvasPool, shape.canvas.width, shape.canvas.height);
-    const tctx = tintedCanvas.getContext('2d');
-    tctx.setTransform(1, 0, 0, 1, 0, 0);
-    tctx.globalCompositeOperation = 'source-over';
-    tctx.clearRect(0, 0, tintedCanvas.width, tintedCanvas.height);
-    tctx.fillStyle = color;
-    tctx.fillRect(0, 0, tintedCanvas.width, tintedCanvas.height);
-    tctx.globalCompositeOperation = 'destination-in';
-    tctx.drawImage(shape.canvas, 0, 0);
-
-    if (shape.tinted.size >= TINT_CACHE_LIMIT) {
-        const evictedColor = shape.tinted.keys().next().value;
-        releasePooledCanvas(tintedCanvasPool, shape.tinted.get(evictedColor));
-        shape.tinted.delete(evictedColor);
-        if (shape.bitmaps) shape.bitmaps.delete(evictedColor);
-    }
-    shape.tinted.set(color, tintedCanvas);
-    return tintedCanvas;
-}
-
-function buildGradientCanvasStyle(ctx, gradient, spanW, spanH, localOffsetXPx, localOffsetYPx) {
-    const colors = gradient.colors;
-    const last = colors.length - 1;
-    const cx = spanW / 2 - localOffsetXPx;
-    const cy = spanH / 2 - localOffsetYPx;
-    const type = gradient.type || GRADIENT_TYPE_LINEAR;
-
-    if (type === GRADIENT_TYPE_RADIAL) {
-        const radius = Math.max(1, Math.sqrt(spanW * spanW + spanH * spanH) / 2);
-        const canvasGradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-        for (let c = 0; c <= last; c++) {
-            canvasGradient.addColorStop(last === 0 ? 0 : c / last, colors[c]);
-        }
-        return canvasGradient;
-    }
-
-    if (type === GRADIENT_TYPE_CONIC && typeof ctx.createConicGradient === 'function') {
-        const startAngleRad = (gradient.angle || 0) * Math.PI / 180;
-        const canvasGradient = ctx.createConicGradient(startAngleRad, cx, cy);
-        for (let c = 0; c <= last; c++) {
-            canvasGradient.addColorStop(last === 0 ? 0 : c / last, colors[c]);
-        }
-        return canvasGradient;
-    }
-
-    const angleRad = (gradient.angle || 0) * Math.PI / 180;
-    const dx = Math.cos(angleRad);
-    const dy = Math.sin(angleRad);
-    const halfW = spanW / 2;
-    const halfH = spanH / 2;
-    const half = Math.abs(dx) * halfW + Math.abs(dy) * halfH;
-    const x0 = cx - dx * half;
-    const y0 = cy - dy * half;
-    const x1 = cx + dx * half;
-    const y1 = cy + dy * half;
-    const canvasGradient = ctx.createLinearGradient(x0, y0, x1, y1);
-    for (let c = 0; c <= last; c++) {
-        canvasGradient.addColorStop(last === 0 ? 0 : c / last, colors[c]);
-    }
-    return canvasGradient;
-}
-
-function tintGlyphGradient(shape, gradient, spanW, spanH, localOffsetXPx, localOffsetYPx) {
-    const scratchCanvas = acquirePooledCanvas(tintedCanvasPool, shape.canvas.width, shape.canvas.height);
-    const tctx = scratchCanvas.getContext('2d');
-    tctx.setTransform(1, 0, 0, 1, 0, 0);
-    tctx.globalCompositeOperation = 'source-over';
-    tctx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
-    tctx.fillStyle = buildGradientCanvasStyle(tctx, gradient, spanW, spanH, localOffsetXPx, localOffsetYPx);
-    tctx.fillRect(0, 0, scratchCanvas.width, scratchCanvas.height);
-    tctx.globalCompositeOperation = 'destination-in';
-    tctx.drawImage(shape.canvas, 0, 0);
-    return scratchCanvas;
-}
-
-const borderOffsetsCache = new Map();
-
-function getBorderOffsets(borderSize) {
-    const key = Math.round(borderSize * 4);
-    let offsets = borderOffsetsCache.get(key);
-    if (offsets) return offsets;
-
-    const steps = Math.max(8, Math.ceil((Math.PI * 2 * borderSize) / 1.5));
-    offsets = [];
-    for (let i = 0; i < steps; i++) {
-        const angle = (i / steps) * Math.PI * 2;
-        offsets.push([Math.cos(angle) * borderSize, Math.sin(angle) * borderSize]);
-    }
-
-    if (borderOffsetsCache.size >= 64) {
-        const evictedKey = borderOffsetsCache.keys().next().value;
-        borderOffsetsCache.delete(evictedKey);
-    }
-    borderOffsetsCache.set(key, offsets);
-    return offsets;
-}
-
-function getGlyphBitmap(glyphKey, color) {
-    const shape = getGlyphShape(glyphKey);
-    if (!shape) return null;
-    let bitmap = shape.bitmaps.get(color);
-    if (bitmap) return bitmap;
-    const canvas = tintGlyph(shape, color);
-    bitmap = {
-        canvas,
-        advance: shape.advance,
-        baselineOriginXEm: shape.baselineOriginXEm,
-        baselineOriginYEm: shape.baselineOriginYEm,
-        fontAscentEm: shape.fontAscentEm,
-        fontDescentEm: shape.fontDescentEm,
-        shape
-    };
-    if (shape.bitmaps.size >= TINT_CACHE_LIMIT) {
-        shape.bitmaps.delete(shape.bitmaps.keys().next().value);
-    }
-    shape.bitmaps.set(color, bitmap);
-    return bitmap;
-}
-
-function evictOldestGlobalShadow() {
-    const oldestKey = globalShadowLRU.keys().next().value;
-    if (oldestKey === undefined) return;
-    const oldest = globalShadowLRU.get(oldestKey);
-    globalShadowLRU.delete(oldestKey);
-    oldest.shape.shadows.delete(oldest.key);
-    releaseShadowCapture(oldest.entry.canvas);
-}
-
-function getShadowGlyphBitmap(shape, color, blurPx, offsetXPx, offsetYPx) {
-    const key = color + '\u0001' + blurPx + '\u0001' + offsetXPx + '\u0001' + offsetYPx;
-    let entry = shape.shadows.get(key);
-    if (entry) {
-        const globalKey = entry.globalKey;
-        globalShadowLRU.delete(globalKey);
-        globalShadowLRU.set(globalKey, {
-            shape,
-            key,
-            entry
-        });
-        return entry;
-    }
-
-    const padPx = Math.ceil(blurPx * 3) + Math.ceil(Math.max(Math.abs(offsetXPx), Math.abs(offsetYPx))) + 2;
-    const w = shape.canvas.width + padPx * 2;
-    const h = shape.canvas.height + padPx * 2;
-    const surface = sharedShadowSurface;
-    if (surface.canvas.width !== w) surface.canvas.width = w;
-    if (surface.canvas.height !== h) surface.canvas.height = h;
-    const ctx = surface.canvas.getContext('2d');
-    surface.ctx = ctx;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    ctx.shadowColor = color;
-    ctx.shadowBlur = blurPx;
-    ctx.shadowOffsetX = offsetXPx;
-    ctx.shadowOffsetY = offsetYPx;
-    ctx.drawImage(shape.canvas, padPx, padPx);
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.shadowColor = 'transparent';
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.drawImage(shape.canvas, padPx, padPx);
-    ctx.globalCompositeOperation = 'source-over';
-
-    const canSnapshot = typeof surface.canvas.transferToImageBitmap === 'function';
-    const canvas = canSnapshot ? surface.canvas.transferToImageBitmap() : surface.canvas;
-    entry = {
-        canvas,
-        offsetX: -padPx,
-        offsetY: -padPx
-    };
-    if (!canSnapshot) return entry;
-
-    const globalKey = shadowGlobalKeySeq++;
-    entry.globalKey = globalKey;
-    if (shape.shadows.size >= SHADOW_CACHE_LIMIT) {
-        const evictedKey = shape.shadows.keys().next().value;
-        const evicted = shape.shadows.get(evictedKey);
-        shape.shadows.delete(evictedKey);
-        globalShadowLRU.delete(evicted.globalKey);
-        releaseShadowCapture(evicted.canvas);
-    }
-    shape.shadows.set(key, entry);
-
-    if (globalShadowLRU.size >= GLOBAL_SHADOW_CANVAS_LIMIT) evictOldestGlobalShadow();
-    globalShadowLRU.set(globalKey, {
-        shape,
-        key,
-        entry
-    });
-    return entry;
-}
-
-const maskGlyphStencilCache = new Map();
-const maskScratchCanvasPool = [];
-
-const sharedPatternSurface = (() => {
-    const canvas = new OffscreenCanvas(1, 1);
-    return {
-        canvas,
-        ctx: canvas.getContext('2d'),
-        cacheKey: null,
-        pattern: null,
-        capW: canvas.width,
-        capH: canvas.height
-    };
-})();
-
-function sampleMaskPattern(texture, matrix, w, h) {
-    const surface = sharedPatternSurface;
-    let patternDirty = surface.cacheKey !== texture.cacheKey;
-    if (surface.capW < w || surface.capH < h) {
-        surface.capW = Math.max(surface.capW, bucketSize(w));
-        surface.capH = Math.max(surface.capH, bucketSize(h));
-        surface.canvas.width = surface.capW;
-        surface.canvas.height = surface.capH;
-        patternDirty = true;
-    }
-    if (patternDirty) {
-        surface.pattern = surface.ctx.createPattern(texture.canvas, 'repeat');
-        surface.cacheKey = texture.cacheKey;
-    }
-    if (!surface.pattern) return null;
-
-    surface.pattern.setTransform(matrix);
-    surface.ctx.setTransform(1, 0, 0, 1, 0, 0);
-    surface.ctx.globalAlpha = 1;
-    surface.ctx.globalCompositeOperation = 'source-over';
-    surface.ctx.clearRect(0, 0, w, h);
-    surface.ctx.fillStyle = surface.pattern;
-    surface.ctx.fillRect(0, 0, w, h);
-
-    return surface.canvas;
-}
-
-function getMaskGlyphStencil(shape) {
-    let stencil = maskGlyphStencilCache.get(shape);
-    if (stencil) return stencil;
-    stencil = acquirePooledCanvas(stencilCanvasPool, shape.canvas.width, shape.canvas.height);
-    const sctx = stencil.getContext('2d');
-    sctx.setTransform(1, 0, 0, 1, 0, 0);
-    sctx.globalCompositeOperation = 'source-over';
-    sctx.clearRect(0, 0, stencil.width, stencil.height);
-    sctx.fillStyle = '#ffffff';
-    sctx.fillRect(0, 0, stencil.width, stencil.height);
-    sctx.globalCompositeOperation = 'destination-in';
-    sctx.drawImage(shape.canvas, 0, 0);
-    if (maskGlyphStencilCache.size >= STENCIL_CACHE_LIMIT) {
-        const evictedShape = maskGlyphStencilCache.keys().next().value;
-        releasePooledCanvas(stencilCanvasPool, maskGlyphStencilCache.get(evictedShape));
-        maskGlyphStencilCache.delete(evictedShape);
-    }
-    maskGlyphStencilCache.set(shape, stencil);
-    return stencil;
-}
-
-function acquireMaskScratchCanvas(w, h) {
-    let best = -1;
-    let bestArea = Infinity;
-    for (let i = 0; i < maskScratchCanvasPool.length; i++) {
-        const c = maskScratchCanvasPool[i];
-        if (c.width >= w && c.height >= h) {
-            const area = c.width * c.height;
-            if (area < bestArea) {
-                bestArea = area;
-                best = i;
+    function ensureFontCoverage(richChars) {
+        if (!document.fonts) return;
+        let missing = null;
+        for (let i = 0; i < richChars.length; i++) {
+            const rc = richChars[i];
+            const char = rc.char;
+            if (char === '\n' || char === ' ' || char === '\u00A0') continue;
+            if (!loadedDocumentFonts.has(rc.font)) continue;
+            let seen = fontCharsChecked.get(rc.font);
+            if (!seen) {
+                seen = new Set();
+                fontCharsChecked.set(rc.font, seen);
             }
+            if (seen.has(char)) continue;
+            seen.add(char);
+            if (!missing) missing = new Map();
+            missing.set(rc.font, (missing.get(rc.font) || '') + char);
         }
-    }
-    let canvas;
-    if (best !== -1) {
-        canvas = maskScratchCanvasPool.splice(best, 1)[0];
-    } else {
-        canvas = maskScratchCanvasPool.length ? maskScratchCanvasPool.pop() : new OffscreenCanvas(1, 1);
-        const cw = Math.max(canvas.width, bucketSize(w));
-        const ch = Math.max(canvas.height, bucketSize(h));
-        if (canvas.width !== cw) canvas.width = cw;
-        if (canvas.height !== ch) canvas.height = ch;
-    }
-    return canvas;
-}
-
-function releaseMaskScratchCanvas(canvas) {
-    if (maskScratchCanvasPool.length < 64) maskScratchCanvasPool.push(canvas);
-}
-
-function drawMaskedGlyph(destCtx, glyphKey, mask, texture, worldDrawX, worldDrawY, spanW, spanH, spanOriginX, spanOriginY, destX, destY, alpha) {
-    const coverage = Math.max(0, Math.min(100, Scratch.Cast.toNumber(mask.coverage) || 0)) / 100;
-    if (coverage <= 0) return;
-
-    const shape = getGlyphShape(glyphKey);
-    if (!shape) return;
-    const w = shape.canvas.width;
-    const h = shape.canvas.height;
-
-    const zoom = Math.max(0.01, (Scratch.Cast.toNumber(mask.zoom) || 100) / 100);
-    const rotation = Scratch.Cast.toNumber(mask.rotation) || 0;
-    const anchorX = (mask.x || 0) * DEST_SCALE - destX;
-    const anchorY = -(mask.y || 0) * DEST_SCALE - destY;
-
-    const matrix = new DOMMatrix();
-    matrix.translateSelf(anchorX, anchorY);
-    if (rotation !== 0) matrix.rotateSelf(rotation);
-    matrix.scaleSelf(zoom, zoom);
-
-    const sampled = sampleMaskPattern(texture, matrix, w, h);
-    if (!sampled) return;
-
-    const scratch = acquireMaskScratchCanvas(w, h);
-    const sctx = scratch.getContext('2d');
-    sctx.setTransform(1, 0, 0, 1, 0, 0);
-    sctx.clearRect(0, 0, w, h);
-    sctx.globalAlpha = 1;
-    sctx.globalCompositeOperation = 'source-over';
-    sctx.drawImage(sampled, 0, 0, w, h, 0, 0, w, h);
-
-    const stencil = getMaskGlyphStencil(shape);
-    sctx.globalCompositeOperation = 'destination-in';
-    sctx.drawImage(stencil, 0, 0);
-    sctx.globalCompositeOperation = 'source-over';
-
-    if (coverage < 1) {
-        const seamless = !!mask.seamless;
-        const localOffsetX = seamless ? (worldDrawX - spanOriginX) : 0;
-        const localOffsetY = seamless ? (worldDrawY - spanOriginY) : 0;
-        const effSpanW = seamless && spanW ? spanW : w;
-        const effSpanH = seamless && spanH ? spanH : h;
-        const blurPx = Math.max(0, Scratch.Cast.toNumber(mask.blur) || 0) * DEST_SCALE;
-        const direction = mask.direction || WIPE_DIRECTION_BOTTOM_UP;
-        const bandHalf = Math.max(0.5, blurPx / 2);
-
-        let revealEdge, axisIsX, growsPositive;
-        if (direction === WIPE_DIRECTION_LEFT_RIGHT) {
-            revealEdge = effSpanW * coverage - localOffsetX;
-            axisIsX = true;
-            growsPositive = true;
-        } else if (direction === WIPE_DIRECTION_RIGHT_LEFT) {
-            revealEdge = effSpanW - effSpanW * coverage - localOffsetX;
-            axisIsX = true;
-            growsPositive = false;
-        } else if (direction === WIPE_DIRECTION_UP_DOWN) {
-            revealEdge = effSpanH * coverage - localOffsetY;
-            axisIsX = false;
-            growsPositive = true;
-        } else {
-            revealEdge = effSpanH - effSpanH * coverage - localOffsetY;
-            axisIsX = false;
-            growsPositive = false;
-        }
-
-        const axisSize = axisIsX ? w : h;
-        const gradStart = growsPositive ? revealEdge - bandHalf : revealEdge + bandHalf;
-        const gradEnd = growsPositive ? revealEdge + bandHalf : revealEdge - bandHalf;
-        const bandFrom = Math.min(gradStart, gradEnd);
-        const bandTo = Math.max(gradStart, gradEnd);
-
-        if (bandTo <= 0) {
-            if (growsPositive) {
-                releaseMaskScratchCanvas(scratch);
-                return;
-            }
-        } else if (bandFrom >= axisSize) {
-            if (!growsPositive) {
-                releaseMaskScratchCanvas(scratch);
-                return;
-            }
-        } else {
-            sctx.globalCompositeOperation = 'destination-in';
-            const gradient = axisIsX ?
-                sctx.createLinearGradient(gradStart, 0, gradEnd, 0) :
-                sctx.createLinearGradient(0, gradStart, 0, gradEnd);
-            gradient.addColorStop(0, 'rgba(255,255,255,1)');
-            gradient.addColorStop(1, 'rgba(255,255,255,0)');
-            sctx.fillStyle = gradient;
-            sctx.fillRect(0, 0, w, h);
-            sctx.globalCompositeOperation = 'source-over';
-        }
-    }
-
-    destCtx.save();
-    destCtx.globalAlpha = alpha;
-    destCtx.drawImage(scratch, 0, 0, w, h, destX, destY, w, h);
-    destCtx.restore();
-
-    releaseMaskScratchCanvas(scratch);
-}
-
-const READBACK_CANVAS = new OffscreenCanvas(1, 1);
-const READBACK_CTX = READBACK_CANVAS.getContext('2d', {
-    willReadFrequently: true
-});
-
-function getGlyphInkColumns(glyph) {
-    if (glyph.inkColumns) return glyph.inkColumns;
-    const w = glyph.canvas.width;
-    const h = glyph.canvas.height;
-    if (READBACK_CANVAS.width !== w) READBACK_CANVAS.width = w;
-    if (READBACK_CANVAS.height !== h) READBACK_CANVAS.height = h;
-    READBACK_CTX.setTransform(1, 0, 0, 1, 0, 0);
-    READBACK_CTX.clearRect(0, 0, w, h);
-    READBACK_CTX.drawImage(glyph.canvas, 0, 0);
-    const image = READBACK_CTX.getImageData(0, 0, w, h);
-    const inkColumns = new Uint8Array(w * h);
-    for (let i = 0; i < inkColumns.length; i++) {
-        inkColumns[i] = image.data[i * 4 + 3] > 16 ? 1 : 0;
-    }
-    glyph.inkColumns = inkColumns;
-    return inkColumns;
-}
-
-function strokeUnderline(ctx, glyph, glyphX, glyphY, startX, endX, y, lineWidth) {
-    const stroke = (x1, x2) => {
-        if (x2 <= x1) return;
-        ctx.beginPath();
-        ctx.moveTo(x1, y);
-        ctx.lineTo(x2, y);
-        ctx.stroke();
-    };
-
-    try {
-        const w = glyph.canvas.width;
-        const inkData = getGlyphInkColumns(glyph);
-        const rowStart = Math.max(0, Math.floor(y - glyphY - lineWidth / 2));
-        const rowEnd = Math.min(glyph.canvas.height - 1, Math.ceil(y - glyphY + lineWidth / 2));
-        const columnStart = Math.max(0, Math.floor(startX - glyphX));
-        const columnEnd = Math.min(w - 1, Math.ceil(endX - glyphX));
-        const ink = new Uint8Array(w);
-
-        for (let py = rowStart; py <= rowEnd; py++) {
-            for (let px = columnStart; px <= columnEnd; px++) {
-                if (inkData[py * w + px]) ink[px] = 1;
-            }
-        }
-
-        const padding = Math.max(1, Math.ceil(lineWidth / 2) + 1);
-        let segmentStart = startX;
-        let px = columnStart;
-        while (px <= columnEnd) {
-            if (!ink[px]) {
-                px++;
-                continue;
-            }
-            const inkStart = px;
-            while (px <= columnEnd && ink[px]) px++;
-            const skipStart = Math.max(startX, glyphX + inkStart - padding);
-            const skipEnd = Math.min(endX, glyphX + px + padding);
-            stroke(segmentStart, skipStart);
-            segmentStart = Math.max(segmentStart, skipEnd);
-        }
-        stroke(segmentStart, endX);
-    } catch (e) {
-        stroke(startX, endX);
-    }
-}
-
-function maskGroupKey(mask) {
-    return mask.targetName + '\u0001' + mask.costumeName + '\u0001' +
-        (mask.direction || WIPE_DIRECTION_BOTTOM_UP) + '\u0001' +
-        Math.round(mask.x * 4) + '\u0001' + Math.round(mask.y * 4);
-}
-
-function computeSeamlessMaskSpansByIndex(paintOps, areaW, areaH) {
-    const spans = new Map();
-    let groupIndices = null;
-    let groupKey = null;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-
-    const flushGroup = () => {
-        if (!groupIndices || !groupIndices.length) return;
-        if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) return;
-        const spanW = areaW;
-        const spanH = areaH;
-        for (const gi of groupIndices) {
-            spans.set(gi, {
-                spanW,
-                spanH,
-                originX: 0,
-                originY: 0
-            });
-        }
-    };
-
-    for (let i = 0; i < paintOps.length; i++) {
-        const op = paintOps[i];
-        if (!op.mask || !op.mask.seamless) {
-            flushGroup();
-            groupIndices = null;
-            groupKey = null;
-            continue;
-        }
-
-        const key = maskGroupKey(op.mask);
-        if (groupKey !== key) {
-            flushGroup();
-            groupIndices = [];
-            groupKey = key;
-            minX = Infinity;
-            maxX = -Infinity;
-            minY = Infinity;
-            maxY = -Infinity;
-        }
-        groupIndices.push(op.charIndex);
-
-        if (op.text === '\u00A0' || op.text === '') continue;
-
-        const shape = getGlyphShape(op.glyphKey);
-        if (!shape) continue;
-        const advanceCenterXEm = shape.baselineOriginXEm + shape.advance / 2;
-        const baselineYFromLineCenter = (shape.fontAscentEm - shape.fontDescentEm) / 2;
-        const drawXEm = op.x - advanceCenterXEm;
-        const drawYEm = (op.y + baselineYFromLineCenter) - shape.baselineOriginYEm;
-        const px = Math.round(drawXEm * DEST_SCALE);
-        const py = Math.round(drawYEm * DEST_SCALE);
-        const w = shape.canvas.width;
-        const h = shape.canvas.height;
-
-        minX = Math.min(minX, px);
-        maxX = Math.max(maxX, px + w);
-        minY = Math.min(minY, py);
-        maxY = Math.max(maxY, py + h);
-    }
-    flushGroup();
-
-    return spans;
-}
-
-const maskSpansCacheByState = new Map();
-
-function getSeamlessMaskSpans(stateId, paintOps, layoutDocKey, geometryVersion, areaW, areaH) {
-    const cacheKey = layoutDocKey + '\u0003' + geometryVersion;
-    let entry = maskSpansCacheByState.get(stateId);
-    if (entry && entry.cacheKey === cacheKey) return entry.spans;
-    const spans = computeSeamlessMaskSpansByIndex(paintOps, areaW, areaH);
-    maskSpansCacheByState.set(stateId, { cacheKey, spans });
-    return spans;
-}
-
-function computeGradientSpansByIndex(paintOps) {
-    const spans = new Map();
-    let groupIndices = null;
-    let groupId = null;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-
-    const flushGroup = () => {
-        if (!groupIndices || !groupIndices.length) return;
-        if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) return;
-        const spanW = Math.max(1, maxX - minX);
-        const spanH = Math.max(1, maxY - minY);
-        for (const gi of groupIndices) {
-            spans.set(gi, {
-                spanW,
-                spanH,
-                originX: minX,
-                originY: minY
-            });
-        }
-    };
-
-    for (let i = 0; i < paintOps.length; i++) {
-        const op = paintOps[i];
-        if (!op.gradient || !op.gradientSpanId) {
-            flushGroup();
-            groupIndices = null;
-            groupId = null;
-            continue;
-        }
-
-        if (groupId !== op.gradientSpanId) {
-            flushGroup();
-            groupIndices = [];
-            groupId = op.gradientSpanId;
-            minX = Infinity;
-            maxX = -Infinity;
-            minY = Infinity;
-            maxY = -Infinity;
-        }
-        groupIndices.push(op.charIndex);
-
-        if (op.text === '\u00A0' || op.text === '') continue;
-
-        const shape = getGlyphShape(op.glyphKey);
-        if (!shape) continue;
-        const advanceCenterXEm = shape.baselineOriginXEm + shape.advance / 2;
-        const baselineYFromLineCenter = (shape.fontAscentEm - shape.fontDescentEm) / 2;
-        const drawXEm = op.x - advanceCenterXEm;
-        const drawYEm = (op.y + baselineYFromLineCenter) - shape.baselineOriginYEm;
-        const px = Math.round(drawXEm * DEST_SCALE);
-        const py = Math.round(drawYEm * DEST_SCALE);
-        const w = shape.canvas.width;
-        const h = shape.canvas.height;
-        const padYPx = Math.round((shape.baselineOriginYEm - shape.fontAscentEm) * DEST_SCALE);
-        const inkTop = py + padYPx;
-        const inkBottom = py + h - padYPx;
-
-        minX = Math.min(minX, px);
-        maxX = Math.max(maxX, px + w);
-        minY = Math.min(minY, inkTop);
-        maxY = Math.max(maxY, inkBottom);
-    }
-    flushGroup();
-
-    return spans;
-}
-
-const gradientSpansCacheByState = new Map();
-
-function getGradientSpans(stateId, paintOps, layoutDocKey, geometryVersion) {
-    const cacheKey = layoutDocKey + '\u0003' + geometryVersion;
-    let entry = gradientSpansCacheByState.get(stateId);
-    if (entry && entry.cacheKey === cacheKey) return entry.spans;
-    const spans = computeGradientSpansByIndex(paintOps);
-    gradientSpansCacheByState.set(stateId, { cacheKey, spans });
-    return spans;
-}
-
-const paintCanvasByState = new Map();
-
-function compositeGlyphsToCanvas(stateId, settings, paintOps, docW, docH, textWidth, textHeight, originX, originY, maskTextures) {
-    let canvas = paintCanvasByState.get(stateId);
-    const pixelW = Math.max(1, Math.round(docW * DEST_SCALE));
-    const pixelH = Math.max(1, Math.round(docH * DEST_SCALE));
-    if (!canvas) {
-        canvas = new OffscreenCanvas(pixelW, pixelH);
-        paintCanvasByState.set(stateId, canvas);
-    }
-    if (canvas.width !== pixelW || canvas.height !== pixelH) {
-        canvas.width = pixelW;
-        canvas.height = pixelH;
-    }
-    const ctx = canvas.getContext('2d');
-    ctx.imageSmoothingEnabled = !!settings.smoothing;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, pixelW, pixelH);
-    ctx.textBaseline = 'alphabetic';
-
-    const background = settings.textBackground;
-    if (background.enabled) {
-        const padding = Math.max(0, Scratch.Cast.toNumber(background.padding) || 0) * DEST_SCALE;
-        const width = textWidth * DEST_SCALE + padding * 2;
-        const height = textHeight * DEST_SCALE + padding * 2;
-        const x = originX * DEST_SCALE - width / 2;
-        const y = originY * DEST_SCALE - height / 2;
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(100, Scratch.Cast.toNumber(background.opacity) || 0)) / 100;
-        ctx.fillStyle = background.color;
-        const radius = Math.min(Math.max(0, Scratch.Cast.toNumber(background.radius) || 0) * DEST_SCALE, width / 2, height / 2);
-        ctx.beginPath();
-        ctx.roundRect(x, y, width, height, radius);
-        ctx.fill();
-        ctx.restore();
-    }
-
-    const maskSpansByIndex = getSeamlessMaskSpans(stateId, paintOps, settings.layoutKey + '\u0003' + docW + '\u0003' + docH, settings.charMaskGeometryVersion, docW * DEST_SCALE, docH * DEST_SCALE);
-    const gradientSpansByIndex = getGradientSpans(stateId, paintOps, settings.layoutKey + '\u0003' + docW + '\u0003' + docH, settings.charMaskGeometryVersion);
-    const gradientScratchCanvases = [];
-
-    const applyCharTransformOp = (op, hasRotation, hasScale) => {
-        const cx = op.x * DEST_SCALE;
-        const cy = op.y * DEST_SCALE;
-        ctx.translate(cx, cy);
-        if (hasRotation) ctx.rotate(-op.rotation * Math.PI / 180);
-        if (hasScale) ctx.scale(op.scale, op.scale);
-        ctx.translate(-cx, -cy);
-    };
-    const resetTransform = () => ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-    for (let i = 0; i < paintOps.length; i++) {
-        const op = paintOps[i];
-        if (op.text === '\u00A0' || op.text === '') continue;
-
-        let glyph;
-        if (op.gradient) {
-            const shape = getGlyphShape(op.glyphKey);
-            const span = shape && gradientSpansByIndex.get(op.charIndex);
-            if (shape && span) {
-                const advanceCenterXEm = shape.baselineOriginXEm + shape.advance / 2;
-                const baselineYFromLineCenter = (shape.fontAscentEm - shape.fontDescentEm) / 2;
-                const drawXEmForSpan = op.x - advanceCenterXEm;
-                const drawYEmForSpan = (op.y + baselineYFromLineCenter) - shape.baselineOriginYEm;
-                const localOffsetXPx = Math.round(drawXEmForSpan * DEST_SCALE) - span.originX;
-                const localOffsetYPx = Math.round(drawYEmForSpan * DEST_SCALE) - span.originY;
-                const gradientCanvas = tintGlyphGradient(shape, op.gradient, span.spanW, span.spanH, localOffsetXPx, localOffsetYPx);
-                gradientScratchCanvases.push(gradientCanvas);
-                glyph = {
-                    canvas: gradientCanvas,
-                    advance: shape.advance,
-                    baselineOriginXEm: shape.baselineOriginXEm,
-                    baselineOriginYEm: shape.baselineOriginYEm,
-                    fontAscentEm: shape.fontAscentEm,
-                    fontDescentEm: shape.fontDescentEm,
-                    shape
-                };
-            }
-        }
-        if (!glyph) glyph = getGlyphBitmap(op.glyphKey, op.color);
-        if (!glyph) continue;
-        const fontSize = op.fontSize;
-
-        const advanceCenterXEm = glyph.baselineOriginXEm + glyph.advance / 2;
-        const baselineYFromLineCenter = (glyph.fontAscentEm - glyph.fontDescentEm) / 2;
-        const drawXEm = op.x - advanceCenterXEm;
-        const drawYEm = (op.y + baselineYFromLineCenter) - glyph.baselineOriginYEm;
-
-        const hasOpacity = op.opacity != null && op.opacity !== 1;
-        const hasRotation = !!op.rotation;
-        const hasScale = op.scale != null && op.scale !== 1;
-        const hasTransform = hasRotation || hasScale;
-
-        if (hasTransform) applyCharTransformOp(op, hasRotation, hasScale);
-
-        if (settings.textShadow.enabled) {
-            const shadowShape = glyph.shape;
-            const shadowBlurPx = Math.max(0, Scratch.Cast.toNumber(settings.textShadow.blur) || 0) * DEST_SCALE;
-            const shadowOffsetXPx = (Scratch.Cast.toNumber(settings.textShadow.offsetX) || 0) * DEST_SCALE;
-            const shadowOffsetYPx = (Scratch.Cast.toNumber(settings.textShadow.offsetY) || 0) * DEST_SCALE;
-            const shadowBitmap = getShadowGlyphBitmap(shadowShape, settings.textShadow.color, shadowBlurPx, shadowOffsetXPx, shadowOffsetYPx);
-            ctx.globalAlpha = (hasOpacity ? op.opacity : 1) * Math.max(0, Math.min(100, Scratch.Cast.toNumber(settings.textShadow.opacity) || 0)) / 100;
-            ctx.drawImage(shadowBitmap.canvas, drawXEm * DEST_SCALE + shadowBitmap.offsetX, drawYEm * DEST_SCALE + shadowBitmap.offsetY);
-            ctx.globalAlpha = 1;
-        }
-
-        if (settings.textBorder.enabled && Scratch.Cast.toNumber(settings.textBorder.size) > 0) {
-            const shape = glyph.shape;
-            const borderGlyph = tintGlyph(shape, settings.textBorder.color);
-            ctx.globalAlpha = (hasOpacity ? op.opacity : 1) * Math.max(0, Math.min(100, Scratch.Cast.toNumber(settings.textBorder.opacity) || 0)) / 100;
-            const borderSize = Math.max(0, Scratch.Cast.toNumber(settings.textBorder.size) || 0) * DEST_SCALE;
-            const borderOffsets = getBorderOffsets(borderSize);
-            for (const [offsetX, offsetY] of borderOffsets) {
-                ctx.drawImage(borderGlyph, drawXEm * DEST_SCALE + offsetX, drawYEm * DEST_SCALE + offsetY);
-            }
-            ctx.globalAlpha = 1;
-        }
-
-        if (!hasTransform) {
-            const px = Math.round(drawXEm * DEST_SCALE);
-            const py = Math.round(drawYEm * DEST_SCALE);
-            if (hasOpacity) {
-                ctx.globalAlpha = op.opacity;
-                ctx.drawImage(glyph.canvas, px, py);
-                ctx.globalAlpha = 1;
-            } else {
-                ctx.drawImage(glyph.canvas, px, py);
-            }
-        } else {
-            if (hasOpacity) ctx.globalAlpha = op.opacity;
-            ctx.drawImage(glyph.canvas, drawXEm * DEST_SCALE, drawYEm * DEST_SCALE);
-            if (hasOpacity) ctx.globalAlpha = 1;
-        }
-
-        if (op.mask && !op.gradient) {
-            const texture = maskTextures.get(op.mask.targetName + '\u0001' + op.mask.costumeName);
-            if (texture) {
-                const px = Math.round(drawXEm * DEST_SCALE);
-                const py = Math.round(drawYEm * DEST_SCALE);
-                const span = maskSpansByIndex.get(op.charIndex);
-                const maskOpacity = Math.max(0, Math.min(100, Scratch.Cast.toNumber(op.mask.opacity != null ? op.mask.opacity : 100))) / 100;
-                const combinedAlpha = (hasOpacity ? op.opacity : 1) * maskOpacity;
-                if (combinedAlpha > 0) {
-                    if (!hasTransform) {
-                        drawMaskedGlyph(
-                            ctx, op.glyphKey,
-                            op.mask, texture, px, py,
-                            span ? span.spanW : 0, span ? span.spanH : 0,
-                            span ? span.originX : 0, span ? span.originY : 0,
-                            px, py, combinedAlpha
-                        );
-                    } else {
-                        drawMaskedGlyph(
-                            ctx, op.glyphKey,
-                            op.mask, texture, px, py,
-                            span ? span.spanW : 0, span ? span.spanH : 0,
-                            span ? span.originX : 0, span ? span.originY : 0,
-                            drawXEm * DEST_SCALE, drawYEm * DEST_SCALE, combinedAlpha
-                        );
-                    }
-                }
-            }
-        }
-
-        if (op.strike) {
-            if (hasOpacity) ctx.globalAlpha = op.opacity;
-            ctx.strokeStyle = op.color;
-            ctx.lineWidth = Math.max(1, fontSize * 0.06) * DEST_SCALE;
-            const sy = op.y * DEST_SCALE;
-            ctx.beginPath();
-            ctx.moveTo((op.x - op.width / 2) * DEST_SCALE, sy);
-            ctx.lineTo((op.x + op.width / 2) * DEST_SCALE, sy);
-            ctx.stroke();
-            if (hasOpacity) ctx.globalAlpha = 1;
-        }
-
-        if (op.underline) {
-            if (hasOpacity) ctx.globalAlpha = op.opacity;
-            ctx.strokeStyle = op.color;
-            const lineWidth = Math.max(1, fontSize * 0.06) * DEST_SCALE;
-            ctx.lineWidth = lineWidth;
-            const uy = (op.y + baselineYFromLineCenter + fontSize * 0.06) * DEST_SCALE;
-            const startX = (op.x - op.width / 2) * DEST_SCALE;
-            const endX = (op.x + op.width / 2) * DEST_SCALE;
-            if (hasRotation) {
-                ctx.beginPath();
-                ctx.moveTo(startX, uy);
-                ctx.lineTo(endX, uy);
-                ctx.stroke();
-            } else {
-                strokeUnderline(ctx, glyph, Math.round(drawXEm * DEST_SCALE), Math.round(drawYEm * DEST_SCALE), startX, endX, uy, lineWidth);
-            }
-            if (hasOpacity) ctx.globalAlpha = 1;
-        }
-
-        if (hasTransform) resetTransform();
-    }
-
-    for (let gi = 0; gi < gradientScratchCanvases.length; gi++) {
-        releasePooledCanvas(tintedCanvasPool, gradientScratchCanvases[gi]);
-    }
-
-    return canvas;
-}
-
-const maskTexturesByKey = new Map();
-
-self.onmessage = async (event) => {
-    const msg = event.data;
-    if (!msg) return;
-
-    if (msg.type === 'composite') {
-        try {
-            const neededKeys = new Set();
-            for (let i = 0; i < msg.paintOps.length; i++) {
-                const opKey = msg.paintOps[i].glyphKey;
-                if (opKey) neededKeys.add(opKey);
-            }
-
-            for (const [key, bitmap] of msg.glyphUpdates) {
-                const canvas = acquirePooledCanvas(glyphShapeCanvasPool, bitmap.width, bitmap.height);
-                const gctx = canvas.getContext('2d');
-                gctx.setTransform(1, 0, 0, 1, 0, 0);
-                gctx.clearRect(0, 0, canvas.width, canvas.height);
-                gctx.drawImage(bitmap, 0, 0);
-                bitmap.close();
-                const meta = msg.glyphMeta.get(key);
-                if (glyphShapesByKey.size >= GLYPH_CACHE_LIMIT && !glyphShapesByKey.has(key)) {
-                    let evictedKey;
-                    for (const candidateKey of glyphShapesByKey.keys()) {
-                        if (!neededKeys.has(candidateKey)) {
-                            evictedKey = candidateKey;
-                            break;
+        if (!missing) return;
+        for (const [fontId, chars] of missing) {
+            document.fonts.load(`16px "${fontId}"`, chars)
+                .catch(() => [])
+                .then(faces => {
+                    let discovered = false;
+                    for (const face of faces) {
+                        if (!knownLoadedFontFaces.has(face)) {
+                            knownLoadedFontFaces.add(face);
+                            discovered = true;
                         }
                     }
-                    if (evictedKey !== undefined) {
-                        const evictedShape = glyphShapesByKey.get(evictedKey);
-                        glyphShapesByKey.delete(evictedKey);
-                        if (evictedShape) releaseGlyphOwnedCanvases(evictedShape);
-                    }
-                }
-                glyphShapesByKey.set(key, {
-                    canvas,
-                    tinted: new Map(),
-                    shadows: new Map(),
-                    bitmaps: new Map(),
-                    advance: meta.advance,
-                    baselineOriginXEm: meta.baselineOriginXEm,
-                    baselineOriginYEm: meta.baselineOriginYEm,
-                    fontAscentEm: meta.fontAscentEm,
-                    fontDescentEm: meta.fontDescentEm
+                    if (!discovered) return;
+                    invalidateGlyphCacheForFamily(cssFontFamily(fontId));
+                    charAdvanceCache.clear();
+                    requestRerenderVisibleTextTargets(fontId);
                 });
+        }
+    }
+
+    function preloadBuiltInFonts() {
+        if (!document.fonts) return;
+        const defaultFont = defaultBaseStyle().font;
+        if (documentHasFontFace(defaultFont)) ensureDocumentFont(defaultFont);
+        const connection = typeof navigator !== 'undefined' ? navigator.connection : null;
+        if (connection && connection.saveData) return;
+        const queue = fontIds.filter(id => id !== defaultFont);
+        const loadNext = () => {
+            while (queue.length) {
+                const id = queue.shift();
+                if (!documentHasFontFace(id)) continue;
+                ensureDocumentFont(id);
+                runWhenIdle(loadNext, 3000);
+                return;
             }
-
-            for (const [key, bitmap] of msg.maskTextureUpdates) {
-                if (bitmap === null) {
-                    maskTexturesByKey.delete(key);
-                    continue;
-                }
-                const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-                canvas.getContext('2d').drawImage(bitmap, 0, 0);
-                bitmap.close();
-                maskTexturesByKey.set(key, { canvas, cacheKey: key });
-            }
-
-            const canvas = compositeGlyphsToCanvas(
-                msg.stateId, msg.settings, msg.paintOps,
-                msg.docW, msg.docH, msg.textWidth, msg.textHeight,
-                msg.originX, msg.originY, maskTexturesByKey
-            );
-
-            const resultBitmap = canvas.transferToImageBitmap ?
-                canvas.transferToImageBitmap() :
-                await createImageBitmap(canvas);
-
-            self.postMessage({
-                type: 'composite-result',
-                requestId: msg.requestId,
-                stateId: msg.stateId,
-                bitmap: resultBitmap,
-                pixelW: canvas.width,
-                pixelH: canvas.height
-            }, [resultBitmap]);
-        } catch (err) {
-            self.postMessage({
-                type: 'composite-error',
-                requestId: msg.requestId,
-                stateId: msg.stateId,
-                message: err && err.message ? err.message : String(err)
-            });
-        }
-    } else if (msg.type === 'evict-glyphs') {
-        for (const key of msg.glyphKeys) {
-            const shape = glyphShapesByKey.get(key);
-            glyphShapesByKey.delete(key);
-            if (shape) releaseGlyphOwnedCanvases(shape);
-        }
-    } else if (msg.type === 'dispose-state') {
-        paintCanvasByState.delete(msg.stateId);
-        maskSpansCacheByState.delete(msg.stateId);
-    }
-};
-`;
-
-    let renderWorker = null;
-    let renderWorkerFailed = false;
-    let renderWorkerRequestId = 0;
-    const renderWorkerPending = new Map();
-    const workerKnownGlyphKeys = new Set();
-    const workerKnownMaskKeys = new Set();
-    const stateWorkerIds = new WeakMap();
-    let nextStateWorkerId = 1;
-
-    function supportsRenderWorker() {
-        return typeof Worker !== 'undefined' &&
-            typeof OffscreenCanvas !== 'undefined' &&
-            typeof createImageBitmap !== 'undefined';
-    }
-
-    function detectNonChromiumBrowser() {
-        if (typeof navigator === 'undefined') return null;
-        const ua = navigator.userAgent || '';
-        const isChromium = typeof navigator.userAgentData !== 'undefined' && Array.isArray(navigator.userAgentData.brands) ?
-            navigator.userAgentData.brands.some(b => /chromium/i.test(b.brand)) :
-            (/chrome|chromium|crios|edg|opr|brave/i.test(ua) && !/firefox|fxios/i.test(ua));
-        if (isChromium) return null;
-
-        if (/firefox|fxios/i.test(ua)) return 'Firefox';
-        if (/edg\//i.test(ua)) return null;
-        if (/opr\//i.test(ua) || /opera/i.test(ua)) return null;
-        if (/crios/i.test(ua)) return null;
-        if (/safari/i.test(ua) && !/chrome|chromium|crios|android/i.test(ua)) return 'Safari';
-        if (/samsungbrowser/i.test(ua)) return 'Samsung Internet';
-        if (/ucbrowser/i.test(ua)) return 'UC Browser';
-        if (/msie|trident/i.test(ua)) return 'Internet Explorer';
-        return 'your current browser';
-    }
-
-    function hasSeenDisclaimer(flagKey) {
-        try {
-            return typeof localStorage !== 'undefined' && localStorage.getItem(flagKey) === '1';
-        } catch (e) {
-            return false;
-        }
-    }
-
-    function markDisclaimerSeen(flagKey) {
-        try {
-            if (typeof localStorage !== 'undefined') localStorage.setItem(flagKey, '1');
-        } catch (e) {
-            // ...
-        }
-    }
-
-    let anyDisclaimerApplicable = false;
-
-    function getStateWorkerId(state) {
-        let id = stateWorkerIds.get(state);
-        if (!id) {
-            id = nextStateWorkerId++;
-            stateWorkerIds.set(state, id);
-        }
-        return id;
-    }
-
-    function handleRenderWorkerMessage(event) {
-        const msg = event.data;
-        if (!msg) return;
-        const pending = renderWorkerPending.get(msg.requestId);
-        if (!pending) return;
-        renderWorkerPending.delete(msg.requestId);
-        if (msg.type === 'composite-result') {
-            pending.resolve({
-                bitmap: msg.bitmap,
-                pixelW: msg.pixelW,
-                pixelH: msg.pixelH
-            });
-        } else {
-            pending.reject(new Error(msg.message || 'render worker error'));
-        }
-    }
-
-    function ensureRenderWorker() {
-        if (renderWorker || renderWorkerFailed) return renderWorker;
-        if (!supportsRenderWorker()) {
-            renderWorkerFailed = true;
-            console.log('[Iris Text] SOMEHOW, the render worker is not supported in this environment (wow!). falling back to the main thread.');
-            return null;
-        }
-        try {
-            const blob = new Blob([WORKER_SOURCE], {
-                type: 'text/javascript'
-            });
-            const url = URL.createObjectURL(blob);
-            renderWorker = new Worker(url);
-            renderWorker.onmessage = handleRenderWorkerMessage;
-            renderWorker.onerror = () => {
-                renderWorkerFailed = true;
-                console.log('[Iris Text] uh-oh, the render crashed... falling back to the main thread.');
-                for (const pending of renderWorkerPending.values()) {
-                    pending.reject(new Error('render worker crashed'));
-                }
-                renderWorkerPending.clear();
-                if (renderWorker) {
-                    renderWorker.terminate();
-                    renderWorker = null;
-                }
-            };
-            console.log('[Iris Text] the render worker has started. using worker rendering.');
-        } catch (e) {
-            renderWorkerFailed = true;
-            renderWorker = null;
-            console.log('[Iris Text] render worker failed to start (' + (e && e.message ? e.message : e) + '). using main-thread rendering.');
-        }
-        return renderWorker;
-    }
-
-    function disposeStateFromWorker(state) {
-        const id = stateWorkerIds.get(state);
-        if (id === undefined || !renderWorker) return;
-        renderWorker.postMessage({
-            type: 'dispose-state',
-            stateId: id
-        });
-    }
-
-    async function compositeGlyphsViaWorker(state, paintOps, docW, docH, textWidth, textHeight, originX, originY) {
-        const worker = ensureRenderWorker();
-        if (!worker) return null;
-
-        const glyphJobs = [];
-        const neededMaskKeys = new Set();
-
-        for (let i = 0; i < paintOps.length; i++) {
-            const op = paintOps[i];
-            if (op.text === '\u00A0' || op.text === '') continue;
-            const fontFamily = op.font['font-family'];
-            const fontSize = op.font['font-size'];
-            const fontWeight = op.font['font-weight'];
-            const fontStyle = op.font['font-style'];
-            const key = glyphCacheKey(op.text, fontFamily, fontSize, fontWeight, fontStyle);
-            op.glyphKey = key;
-            op.fontSize = fontSize;
-            if (!workerKnownGlyphKeys.has(key) && !glyphJobs.some(j => j.key === key)) {
-                const shape = getGlyphShape(op.text, fontFamily, fontSize, fontWeight, fontStyle);
-                glyphJobs.push({ key, shape });
-                workerKnownGlyphKeys.add(key);
-            }
-            if (op.mask) {
-                neededMaskKeys.add(op.mask.targetName + '\u0001' + op.mask.costumeName);
-            }
-        }
-
-        const maskJobs = [];
-        for (const maskKey of neededMaskKeys) {
-            if (workerKnownMaskKeys.has(maskKey)) continue;
-            const [targetName, costumeName] = maskKey.split('\u0001');
-            const texture = getMaskTexture(targetName, costumeName);
-            if (!texture) continue;
-            maskJobs.push({ maskKey, texture });
-            workerKnownMaskKeys.add(maskKey);
-        }
-
-        const [glyphBitmaps, maskBitmaps] = await Promise.all([
-            Promise.all(glyphJobs.map(j => createImageBitmap(j.shape.canvas))),
-            Promise.all(maskJobs.map(j => createImageBitmap(j.texture.canvas)))
-        ]);
-
-        const glyphUpdates = glyphJobs.map((j, idx) => [j.key, glyphBitmaps[idx]]);
-        const glyphMeta = glyphJobs.map(j => [j.key, {
-            advance: j.shape.advance,
-            baselineOriginXEm: j.shape.baselineOriginXEm,
-            baselineOriginYEm: j.shape.baselineOriginYEm,
-            fontAscentEm: j.shape.fontAscentEm,
-            fontDescentEm: j.shape.fontDescentEm
-        }]);
-        const maskTextureUpdates = maskJobs.map((j, idx) => [j.maskKey, maskBitmaps[idx]]);
-
-        const stateId = getStateWorkerId(state);
-        const requestId = ++renderWorkerRequestId;
-
-        const settings = {
-            smoothing: state.smoothing,
-            textBackground: state.textBackground,
-            textShadow: state.textShadow,
-            textBorder: state.textBorder,
-            layoutKey: state.layoutKey,
-            charMaskGeometryVersion: state.charMaskGeometryVersion
         };
-
-        const transferList = glyphUpdates.map(([, bitmap]) => bitmap)
-            .concat(maskTextureUpdates.map(([, bitmap]) => bitmap));
-
-        const resultPromise = new Promise((resolve, reject) => {
-            renderWorkerPending.set(requestId, { resolve, reject });
-        });
-
-        worker.postMessage({
-            type: 'composite',
-            requestId,
-            stateId,
-            settings,
-            paintOps,
-            docW,
-            docH,
-            textWidth,
-            textHeight,
-            originX,
-            originY,
-            glyphUpdates,
-            glyphMeta: new Map(glyphMeta),
-            maskTextureUpdates
-        }, transferList);
-
-        return resultPromise;
+        runWhenIdle(loadNext, 3000);
     }
+
+    function startupWarmup() {
+        preloadBuiltInFonts();
+        runWhenIdle(() => {
+            getGLCompositor();
+        }, 2000);
+    }
+
+    const destScale = glyphOversample;
+
 
     function maskGroupKey(mask) {
         return mask.targetName + '\u0001' + mask.costumeName + '\u0001' +
-            (mask.direction || WIPE_DIRECTION_BOTTOM_UP) + '\u0001' +
+            (mask.direction || wipeDirectionBottomUp) + '\u0001' +
             Math.round(mask.x * 4) + '\u0001' + Math.round(mask.y * 4);
+    }
+
+    function glyphDrawRectPx(op, shape) {
+        const advanceCenterXEm = shape.baselineOriginXEm + shape.advance / 2;
+        const baselineYFromLineCenter = (shape.fontAscentEm - shape.fontDescentEm) / 2;
+        const drawXEm = op.x - advanceCenterXEm;
+        const drawYEm = (op.y + baselineYFromLineCenter) - shape.baselineOriginYEm;
+        const px = Math.round(drawXEm * destScale);
+        const py = Math.round(drawYEm * destScale);
+        return { px, py, w: shape.canvas.width, h: shape.canvas.height };
     }
 
     function computeSeamlessMaskSpansByIndex(paintOps, areaW, areaH) {
         const spans = new Map();
         let groupIndices = null;
         let groupKey = null;
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let box = emptyAABB();
 
         const flushGroup = () => {
             if (!groupIndices || !groupIndices.length) return;
-            if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) return;
+            if (!aabbIsFinite(box)) return;
             const spanW = areaW;
             const spanH = areaH;
             for (const gi of groupIndices) {
@@ -4023,33 +4429,17 @@ self.onmessage = async (event) => {
                 flushGroup();
                 groupIndices = [];
                 groupKey = key;
-                minX = Infinity;
-                maxX = -Infinity;
-                minY = Infinity;
-                maxY = -Infinity;
+                box = emptyAABB();
             }
             groupIndices.push(op.charIndex);
 
             if (op.text === '\u00A0' || op.text === '') continue;
 
-            const fontFamily = op.font['font-family'];
-            const fontSize = op.font['font-size'];
-            const fontWeight = op.font['font-weight'];
-            const fontStyle = op.font['font-style'];
-            const shape = getGlyphShape(op.text, fontFamily, fontSize, fontWeight, fontStyle);
-            const advanceCenterXEm = shape.baselineOriginXEm + shape.advance / 2;
-            const baselineYFromLineCenter = (shape.fontAscentEm - shape.fontDescentEm) / 2;
-            const drawXEm = op.x - advanceCenterXEm;
-            const drawYEm = (op.y + baselineYFromLineCenter) - shape.baselineOriginYEm;
-            const px = Math.round(drawXEm * DEST_SCALE);
-            const py = Math.round(drawYEm * DEST_SCALE);
-            const w = shape.canvas.width;
-            const h = shape.canvas.height;
+            const shape = getGlyphShapeForFontStyle(op.text, op.font);
+            const rect = glyphDrawRectPx(op, shape);
 
-            minX = Math.min(minX, px);
-            maxX = Math.max(maxX, px + w);
-            minY = Math.min(minY, py);
-            maxY = Math.max(maxY, py + h);
+            expandAABBToPoint(box, rect.px, rect.py);
+            expandAABBToPoint(box, rect.px + rect.w, rect.py + rect.h);
         }
         flushGroup();
 
@@ -4071,19 +4461,19 @@ self.onmessage = async (event) => {
         const spans = new Map();
         let groupIndices = null;
         let groupId = null;
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let box = emptyAABB();
 
         const flushGroup = () => {
             if (!groupIndices || !groupIndices.length) return;
-            if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) return;
-            const spanW = Math.max(1, maxX - minX);
-            const spanH = Math.max(1, maxY - minY);
+            if (!aabbIsFinite(box)) return;
+            const spanW = Math.max(1, box.maxX - box.minX);
+            const spanH = Math.max(1, box.maxY - box.minY);
             for (const gi of groupIndices) {
                 spans.set(gi, {
                     spanW,
                     spanH,
-                    originX: minX,
-                    originY: minY
+                    originX: box.minX,
+                    originY: box.minY
                 });
             }
         };
@@ -4101,36 +4491,20 @@ self.onmessage = async (event) => {
                 flushGroup();
                 groupIndices = [];
                 groupId = op.gradientSpanId;
-                minX = Infinity;
-                maxX = -Infinity;
-                minY = Infinity;
-                maxY = -Infinity;
+                box = emptyAABB();
             }
             groupIndices.push(op.charIndex);
 
             if (op.text === '\u00A0' || op.text === '') continue;
 
-            const fontFamily = op.font['font-family'];
-            const fontSize = op.font['font-size'];
-            const fontWeight = op.font['font-weight'];
-            const fontStyle = op.font['font-style'];
-            const shape = getGlyphShape(op.text, fontFamily, fontSize, fontWeight, fontStyle);
-            const advanceCenterXEm = shape.baselineOriginXEm + shape.advance / 2;
-            const baselineYFromLineCenter = (shape.fontAscentEm - shape.fontDescentEm) / 2;
-            const drawXEm = op.x - advanceCenterXEm;
-            const drawYEm = (op.y + baselineYFromLineCenter) - shape.baselineOriginYEm;
-            const px = Math.round(drawXEm * DEST_SCALE);
-            const py = Math.round(drawYEm * DEST_SCALE);
-            const w = shape.canvas.width;
-            const h = shape.canvas.height;
-            const padYPx = Math.round((shape.baselineOriginYEm - shape.fontAscentEm) * DEST_SCALE);
-            const inkTop = py + padYPx;
-            const inkBottom = py + h - padYPx;
+            const shape = getGlyphShapeForFontStyle(op.text, op.font);
+            const rect = glyphDrawRectPx(op, shape);
+            const padYPx = Math.round((shape.baselineOriginYEm - shape.fontAscentEm) * destScale);
+            const inkTop = rect.py + padYPx;
+            const inkBottom = rect.py + rect.h - padYPx;
 
-            minX = Math.min(minX, px);
-            maxX = Math.max(maxX, px + w);
-            minY = Math.min(minY, inkTop);
-            maxY = Math.max(maxY, inkBottom);
+            expandAABBToPoint(box, rect.px, inkTop);
+            expandAABBToPoint(box, rect.px + rect.w, inkBottom);
         }
         flushGroup();
 
@@ -4154,7 +4528,7 @@ self.onmessage = async (event) => {
         return spans;
     }
 
-    const GL_QUAD_VS = `#version 300 es
+    const glQuadVs = `#version 300 es
     layout(location=0) in vec2 a_corner;
     uniform vec2 u_canvasSize;
     uniform vec2 u_origin;
@@ -4175,7 +4549,110 @@ self.onmessage = async (event) => {
         v_uv = a_corner;
     }`;
 
-    const GL_GLYPH_FS = `#version 300 es
+    const glFxSource = `
+    uniform int u_fx;
+    uniform vec2 u_fxA;
+    uniform vec2 u_fxB;
+    uniform vec2 u_fxSkin;
+    uniform vec4 u_fxGeo;
+    uniform vec4 u_fxCol;
+    uniform vec3 u_fxRgb;
+
+    const float fxEpsilon = 1e-3;
+
+    vec3 fxRgb2Hsv(vec3 rgb) {
+        const vec4 hueOffsets = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+        vec4 temp1 = rgb.b > rgb.g ? vec4(rgb.bg, hueOffsets.wz) : vec4(rgb.gb, hueOffsets.xy);
+        vec4 temp2 = rgb.r > temp1.x ? vec4(rgb.r, temp1.yzx) : vec4(temp1.xyw, rgb.r);
+        float m = min(temp2.y, temp2.w);
+        float C = temp2.x - m;
+        float V = temp2.x;
+        return vec3(
+            abs(temp2.z + (temp2.w - temp2.y) / (6.0 * C + fxEpsilon)),
+            C / (temp2.x + fxEpsilon),
+            V
+        );
+    }
+
+    vec3 fxHsv2Rgb(vec3 hsv) {
+        float r = abs(hsv.x * 6.0 - 3.0) - 1.0;
+        float g = 2.0 - abs(hsv.x * 6.0 - 2.0);
+        float b = 2.0 - abs(hsv.x * 6.0 - 4.0);
+        vec3 rgb = clamp(vec3(r, g, b), 0.0, 1.0);
+        float c = hsv.z * hsv.y;
+        return rgb * c + hsv.z - c;
+    }
+
+    vec2 fxWarpChar(vec2 c) {
+        vec2 w = c;
+        if (c.x >= 0.0 && c.x <= 1.0 && c.y >= 0.0 && c.y <= 1.0) {
+            if ((u_fx & 16) != 0) {
+                w = fract(u_fxGeo.x * w);
+            }
+            if ((u_fx & 8) != 0) {
+                vec2 texel = u_fxSkin / u_fxGeo.y;
+                w = (floor(w * texel) + vec2(0.5)) / texel;
+            }
+        }
+        if ((u_fx & 4) != 0) {
+            vec2 offset = w - vec2(0.5);
+            float magnitude = length(offset);
+            float factor = max(1.0 - (magnitude / 0.5), 0.0);
+            float angle = u_fxGeo.z * factor * factor;
+            float sinA = sin(angle);
+            float cosA = cos(angle);
+            mat2 rotation = mat2(cosA, -sinA, sinA, cosA);
+            w = rotation * offset + vec2(0.5);
+        }
+        if ((u_fx & 2) != 0) {
+            vec2 v = (w - vec2(0.5)) / vec2(0.5);
+            float len = length(v);
+            if (len > 0.0) {
+                float r = pow(min(len, 1.0), u_fxGeo.w) * max(1.0, len);
+                w = vec2(0.5) + r * (v / len) * vec2(0.5);
+            }
+        }
+        return w;
+    }
+
+    vec2 fxWarp(vec2 uv) {
+        if ((u_fx & 30) == 0) return uv;
+        return (fxWarpChar(uv * u_fxA + u_fxB) - u_fxB) / u_fxA;
+    }
+
+    vec3 fxColor(vec3 rgb) {
+        if ((u_fx & 993) == 0) return rgb;
+        rgb = clamp(rgb, 0.0, 1.0);
+        if ((u_fx & 1) != 0) {
+            vec3 hsv = fxRgb2Hsv(rgb);
+            const float minLightness = 0.11 / 2.0;
+            const float minSaturation = 0.09;
+            if (hsv.z < minLightness) hsv = vec3(0.0, 1.0, minLightness);
+            else if (hsv.y < minSaturation) hsv = vec3(0.0, minSaturation, hsv.z);
+            hsv.x = mod(hsv.x + u_fxCol.x, 1.0);
+            if (hsv.x < 0.0) hsv.x += 1.0;
+            rgb = fxHsv2Rgb(hsv);
+        }
+        if ((u_fx & 64) != 0) {
+            vec3 hsv = fxRgb2Hsv(rgb);
+            hsv.y = hsv.y * max(u_fxCol.z, 0.0);
+            rgb = fxHsv2Rgb(hsv);
+        }
+        if ((u_fx & 32) != 0) {
+            rgb = clamp(rgb + vec3(u_fxCol.y), 0.0, 1.0);
+        }
+        if ((u_fx & 128) != 0) rgb.r *= max(u_fxRgb.x, 0.0);
+        if ((u_fx & 256) != 0) rgb.g *= max(u_fxRgb.y, 0.0);
+        if ((u_fx & 512) != 0) rgb.b *= max(u_fxRgb.z, 0.0);
+        return clamp(rgb, 0.0, 1.0);
+    }
+
+    float fxAlpha(float a) {
+        return (u_fx & 1024) != 0 ? clamp(a * u_fxCol.w, 0.0, 1.0) : a;
+    }
+    `;
+
+    const glGlyphFs = `#version 300 es
     precision highp float;
     in vec2 v_uv;
     uniform sampler2D u_tex;
@@ -4191,12 +4668,23 @@ self.onmessage = async (event) => {
     uniform vec2 u_gradCenter;
     uniform float u_gradRadius;
     uniform int u_gradType;
+    uniform float u_gradStartAngle;
+    uniform vec4 u_fxRect;
     out vec4 fragColor;
+    ${glFxSource}
+
+    const float PI = 3.14159265358979;
 
     vec4 sampleGradient(vec2 posPx) {
         float t;
         if (u_gradType == 1) {
             t = clamp(distance(posPx, u_gradCenter) / max(u_gradRadius, 0.0001), 0.0, 1.0);
+        } else if (u_gradType == 2) {
+            vec2 d = posPx - u_gradCenter;
+            float ang = atan(d.x, -d.y) - u_gradStartAngle;
+            ang = mod(ang, 2.0 * PI);
+            if (ang < 0.0) ang += 2.0 * PI;
+            t = ang / (2.0 * PI);
         } else {
             vec2 d = posPx - u_gradAxis0;
             vec2 axis = u_gradAxis1 - u_gradAxis0;
@@ -4215,25 +4703,42 @@ self.onmessage = async (event) => {
     }
 
     void main() {
-        if (u_mode == 2) {
-            vec4 src = texture(u_tex, v_uv);
-            float outA = src.a * u_alpha;
-            fragColor = vec4(src.rgb * outA, outA);
+        bool fxOn = u_fx != 0;
+        if (u_mode == 3) {
+            vec2 w = fxOn ? fxWarpChar(v_uv * u_fxA + u_fxB) : v_uv;
+            vec2 px = max(fwidth(v_uv), vec2(1e-6));
+            vec2 d = min(w - u_fxRect.xy, u_fxRect.zw - w) / px;
+            float coverage = clamp(min(d.x, d.y) + 0.5, 0.0, 1.0);
+            if (fxOn) coverage = fxAlpha(coverage);
+            vec3 lineRgb = fxOn ? fxColor(u_tint.rgb) : u_tint.rgb;
+            float lineA = u_tint.a * coverage * u_alpha;
+            fragColor = vec4(lineRgb * lineA, lineA);
             return;
         }
-        float a = texture(u_tex, v_uv).a;
+        vec2 tuv = fxOn ? fxWarp(v_uv) : v_uv;
+        if (u_mode == 2) {
+            vec4 src = texture(u_tex, tuv);
+            float srcA = fxOn ? fxAlpha(src.a) : src.a;
+            float outA = srcA * u_alpha;
+            vec3 srcRgb = fxOn ? fxColor(src.rgb) : src.rgb;
+            fragColor = vec4(srcRgb * outA, outA);
+            return;
+        }
+        float a = texture(u_tex, tuv).a;
+        if (fxOn) a = fxAlpha(a);
         vec4 base;
         if (u_mode == 1) {
-            vec2 posPx = u_gradLocalOrigin + v_uv * u_gradGlyphSize;
+            vec2 posPx = u_gradLocalOrigin + tuv * u_gradGlyphSize;
             base = sampleGradient(posPx);
         } else {
             base = u_tint;
         }
+        vec3 baseRgb = fxOn ? fxColor(base.rgb) : base.rgb;
         float outA = base.a * a * u_alpha;
-        fragColor = vec4(base.rgb * outA, outA);
+        fragColor = vec4(baseRgb * outA, outA);
     }`;
 
-    const GL_SOLID_FS = `#version 300 es
+    const glSolidFs = `#version 300 es
     precision highp float;
     in vec2 v_uv;
     uniform vec4 u_color;
@@ -4242,7 +4747,16 @@ self.onmessage = async (event) => {
         fragColor = vec4(u_color.rgb * u_color.a, u_color.a);
     }`;
 
-    const GL_ROUNDRECT_FS = `#version 300 es
+    const glEffectFs = `#version 300 es
+    precision highp float;
+    in vec2 v_uv;
+    uniform sampler2D u_tex;
+    out vec4 fragColor;
+    void main() {
+        fragColor = texture(u_tex, vec2(v_uv.x, 1.0 - v_uv.y));
+    }`;
+
+    const glRoundRectFs = `#version 300 es
     precision highp float;
     in vec2 v_uv;
     uniform vec2 u_size;
@@ -4262,7 +4776,39 @@ self.onmessage = async (event) => {
         fragColor = vec4(u_color.rgb * outA, outA);
     }`;
 
-    const GL_MASKWIPE_FS = `#version 300 es
+    const glBorderedRoundRectFs = `#version 300 es
+    precision highp float;
+    in vec2 v_uv;
+    uniform vec2 u_size;
+    uniform float u_outerRadius;
+    uniform float u_borderInset;
+    uniform float u_innerRadius;
+    uniform vec4 u_fillColor;
+    uniform vec4 u_borderColor;
+    out vec4 fragColor;
+    float sdRoundRect(vec2 p, vec2 halfSize, float radius) {
+        vec2 q = abs(p) - halfSize + radius;
+        float inner = min(max(q.x, q.y), 0.0);
+        float outer = length(max(q, 0.0));
+        return inner + outer - radius;
+    }
+    void main() {
+        vec2 p = (v_uv - 0.5) * u_size;
+        vec2 outerHalf = u_size * 0.5;
+        vec2 innerHalf = outerHalf - vec2(u_borderInset);
+        float aa = 1.0;
+        float outerDist = sdRoundRect(p, outerHalf, u_outerRadius);
+        float outerAlpha = 1.0 - smoothstep(-aa, aa, outerDist);
+        float innerDist = sdRoundRect(p, innerHalf, u_innerRadius);
+        float fillCoverage = 1.0 - smoothstep(-aa, aa, innerDist);
+        vec4 fillPremult = vec4(u_fillColor.rgb * u_fillColor.a, u_fillColor.a);
+        vec4 borderPremult = vec4(u_borderColor.rgb * u_borderColor.a, u_borderColor.a);
+        vec4 composited = mix(borderPremult, fillPremult, fillCoverage);
+        composited *= outerAlpha;
+        fragColor = composited;
+    }`;
+
+    const glMaskWipeFs = `#version 300 es
     precision highp float;
     in vec2 v_uv;
     uniform sampler2D u_glyphTex;
@@ -4277,10 +4823,14 @@ self.onmessage = async (event) => {
     uniform float u_wipeStart;
     uniform float u_wipeEnd;
     out vec4 fragColor;
+    ${glFxSource}
     void main() {
-        float glyphA = texture(u_glyphTex, v_uv).a;
+        bool fxOn = u_fx != 0;
+        vec2 tuv = fxOn ? fxWarp(v_uv) : v_uv;
+        float glyphA = texture(u_glyphTex, tuv).a;
+        if (fxOn) glyphA = fxAlpha(glyphA);
         if (glyphA <= 0.0) { discard; }
-        vec2 localPx = v_uv * u_texSizePx;
+        vec2 localPx = tuv * u_texSizePx;
         vec2 absPx = u_wipeOriginPx + localPx;
         vec3 sampledUv = u_patternMatrix * vec3(absPx, 1.0);
         vec4 patternColor = texture(u_patternTex, fract(sampledUv.xy));
@@ -4291,7 +4841,8 @@ self.onmessage = async (event) => {
             wipeAlpha = u_wipeInvert == 1 ? s : (1.0 - s);
         }
         float outA = patternColor.a * glyphA * u_alpha * wipeAlpha;
-        fragColor = vec4(patternColor.rgb * outA, outA);
+        vec3 patternRgb = fxOn ? fxColor(patternColor.rgb) : patternColor.rgb;
+        fragColor = vec4(patternRgb * outA, outA);
     }`;
 
     function glCompileShader(gl, type, source) {
@@ -4331,6 +4882,7 @@ self.onmessage = async (event) => {
 
     let glCompositorInstance = null;
     let glCompositorFailed = false;
+    let webglUnavailableLogged = false;
 
     function createGLCompositor() {
         const canvas = document.createElement('canvas');
@@ -4357,16 +4909,20 @@ self.onmessage = async (event) => {
         gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
         gl.bindVertexArray(null);
 
-        const glyphProgram = glLinkProgram(gl, GL_QUAD_VS, GL_GLYPH_FS);
-        const solidProgram = glLinkProgram(gl, GL_QUAD_VS, GL_SOLID_FS);
-        const roundRectProgram = glLinkProgram(gl, GL_QUAD_VS, GL_ROUNDRECT_FS);
-        const maskWipeProgram = glLinkProgram(gl, GL_QUAD_VS, GL_MASKWIPE_FS);
+        const glyphProgram = glLinkProgram(gl, glQuadVs, glGlyphFs);
+        const solidProgram = glLinkProgram(gl, glQuadVs, glSolidFs);
+        const roundRectProgram = glLinkProgram(gl, glQuadVs, glRoundRectFs);
+        const borderedRoundRectProgram = glLinkProgram(gl, glQuadVs, glBorderedRoundRectFs);
+        const maskWipeProgram = glLinkProgram(gl, glQuadVs, glMaskWipeFs);
+        const effectProgram = glLinkProgram(gl, glQuadVs, glEffectFs);
 
         const glyphUniforms = glUniformLocations(gl, glyphProgram, [
             'u_canvasSize', 'u_origin', 'u_size', 'u_pivot', 'u_rotation', 'u_scale',
             'u_tex', 'u_tint', 'u_alpha', 'u_mode',
             'u_gradStops[0]', 'u_gradLocalOrigin', 'u_gradGlyphSize', 'u_gradCount',
-            'u_gradAxis0', 'u_gradAxis1', 'u_gradCenter', 'u_gradRadius', 'u_gradType'
+            'u_gradAxis0', 'u_gradAxis1', 'u_gradCenter', 'u_gradRadius', 'u_gradType',
+            'u_gradStartAngle',
+            'u_fx', 'u_fxA', 'u_fxB', 'u_fxSkin', 'u_fxGeo', 'u_fxCol', 'u_fxRgb', 'u_fxRect'
         ]);
         glyphUniforms.u_gradStopsBase = gl.getUniformLocation(glyphProgram, 'u_gradStops[0]');
 
@@ -4376,11 +4932,28 @@ self.onmessage = async (event) => {
         const roundRectUniforms = glUniformLocations(gl, roundRectProgram, [
             'u_canvasSize', 'u_origin', 'u_size', 'u_pivot', 'u_rotation', 'u_scale', 'u_radius', 'u_color'
         ]);
+        const borderedRoundRectUniforms = glUniformLocations(gl, borderedRoundRectProgram, [
+            'u_canvasSize', 'u_origin', 'u_size', 'u_pivot', 'u_rotation', 'u_scale',
+            'u_outerRadius', 'u_borderInset', 'u_innerRadius', 'u_fillColor', 'u_borderColor'
+        ]);
         const maskWipeUniforms = glUniformLocations(gl, maskWipeProgram, [
             'u_canvasSize', 'u_origin', 'u_size', 'u_pivot', 'u_rotation', 'u_scale',
             'u_glyphTex', 'u_patternTex', 'u_patternMatrix', 'u_texSizePx', 'u_wipeOriginPx', 'u_alpha',
-            'u_hasWipe', 'u_wipeInvert', 'u_wipeAxis', 'u_wipeStart', 'u_wipeEnd'
+            'u_hasWipe', 'u_wipeInvert', 'u_wipeAxis', 'u_wipeStart', 'u_wipeEnd',
+            'u_fx', 'u_fxA', 'u_fxB', 'u_fxSkin', 'u_fxGeo', 'u_fxCol', 'u_fxRgb'
         ]);
+
+        const effectUniforms = glUniformLocations(gl, effectProgram, [
+            'u_canvasSize', 'u_origin', 'u_size', 'u_pivot', 'u_rotation', 'u_scale', 'u_tex'
+        ]);
+
+        const viewportDims = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+        const detectedMaxSide = Math.min(
+            gl.getParameter(gl.MAX_TEXTURE_SIZE) || Infinity,
+            gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || Infinity,
+            viewportDims ? Math.min(viewportDims[0], viewportDims[1]) : Infinity
+        );
+        const maxSide = Number.isFinite(detectedMaxSide) && detectedMaxSide > 0 ? detectedMaxSide : 2048;
 
         const glyphTextures = new WeakMap();
         const maskPatternTextures = new Map();
@@ -4441,22 +5014,50 @@ self.onmessage = async (event) => {
         const outputCtx = outputCanvas.getContext('2d');
 
         return {
-            gl, canvas, quadVao, outputCanvas, outputCtx,
-            glyphProgram, solidProgram, roundRectProgram, maskWipeProgram,
-            glyphUniforms, solidUniforms, roundRectUniforms, maskWipeUniforms,
+            gl, canvas, quadVao, outputCanvas, outputCtx, maxSide,
+            renderRatio: 1,
+            offX: 0, offY: 0,
+            fx: null, fxX: 0, fxY: 0, fxW: 1, fxH: 1, fxShape: null,
+            effectProgram, effectUniforms,
+            effectFramebuffer: null, effectTexture: null, effectW: 0, effectH: 0,
+            effectActive: false, effectBlendMax: false,
+            glyphProgram, solidProgram, roundRectProgram, borderedRoundRectProgram, maskWipeProgram,
+            glyphUniforms, solidUniforms, roundRectUniforms, borderedRoundRectUniforms, maskWipeUniforms,
             getGlyphTexture, evictGlyphTexture, getMaskPatternTexture
         };
+    }
+
+    const maxOutputSide = 16384;
+    const maxOutputPixels = 16777216;
+
+    function maxRenderSide(comp) {
+        const side = Math.min(comp.maxSide, maxOutputSide);
+        const rendererMax = refreshRendererMaxTextureSize();
+        return rendererMax > 0 ? Math.min(side, rendererMax) : side;
+    }
+
+    function fitRenderScale(comp, docW, docH) {
+        const side = maxRenderSide(comp);
+        const fit = Math.min(
+            destScale,
+            side / docW,
+            side / docH,
+            Math.sqrt(maxOutputPixels / (docW * docH))
+        );
+        return fit > 0 && fit < destScale ? fit : destScale;
     }
 
     function getGLCompositor() {
         if (glCompositorFailed) return null;
         if (glCompositorInstance) return glCompositorInstance;
+        const startTime = perfStart();
         try {
             glCompositorInstance = createGLCompositor();
         } catch (e) {
             glCompositorInstance = null;
         }
         if (!glCompositorInstance) glCompositorFailed = true;
+        perfEnd('gl.compositor.create', startTime);
         return glCompositorInstance;
     }
 
@@ -4489,27 +5090,106 @@ self.onmessage = async (event) => {
 
     function drawGLQuad(comp, program, uniforms, originX, originY, w, h, pivotX, pivotY, rotation, scale) {
         const gl = comp.gl;
+        const ratio = comp.renderRatio;
+        originX -= comp.offX;
+        originY -= comp.offY;
         gl.useProgram(program);
         gl.bindVertexArray(comp.quadVao);
         gl.uniform2f(uniforms.u_canvasSize, gl.drawingBufferWidth, gl.drawingBufferHeight);
-        gl.uniform2f(uniforms.u_origin, originX, originY);
-        gl.uniform2f(uniforms.u_size, w, h);
-        gl.uniform2f(uniforms.u_pivot, pivotX, pivotY);
+        gl.uniform2f(uniforms.u_origin, originX * ratio, originY * ratio);
+        gl.uniform2f(uniforms.u_size, w * ratio, h * ratio);
+        gl.uniform2f(uniforms.u_pivot, pivotX * ratio, pivotY * ratio);
         gl.uniform1f(uniforms.u_rotation, rotation || 0);
         gl.uniform1f(uniforms.u_scale, scale == null ? 1 : scale);
+        const bounds = comp.bounds;
+        if (bounds) {
+            const quadRotation = rotation || 0;
+            const quadScale = scale == null ? 1 : scale;
+            const cos = Math.cos(quadRotation);
+            const sin = Math.sin(quadRotation);
+            for (let corner = 0; corner < 4; corner++) {
+                const relX = (corner & 1 ? w : 0) - pivotX;
+                const relY = (corner & 2 ? h : 0) - pivotY;
+                const x = originX + pivotX + (relX * cos - relY * sin) * quadScale;
+                const y = originY + pivotY + (relX * sin + relY * cos) * quadScale;
+                if (x < bounds.minX) bounds.minX = x;
+                if (x > bounds.maxX) bounds.maxX = x;
+                if (y < bounds.minY) bounds.minY = y;
+                if (y > bounds.maxY) bounds.maxY = y;
+            }
+        }
     }
 
-    function glDrawGlyph(comp, shape, drawX, drawY, tintColor, alpha, rotationRad, scaleAmt, gradient, gradSpan, passthrough) {
+    function setFxUniforms(comp, uni, quadX, quadY, quadW, quadH) {
+        const gl = comp.gl;
+        const fx = comp.fx;
+        if (!fx) {
+            if (uni.fxActive !== false) {
+                gl.uniform1i(uni.u_fx, 0);
+                uni.fxActive = false;
+            }
+            return;
+        }
+        uni.fxActive = true;
+        gl.uniform1i(uni.u_fx, fx.mask);
+        gl.uniform2f(uni.u_fxA, quadW / comp.fxW, quadH / comp.fxH);
+        gl.uniform2f(uni.u_fxB, (quadX - comp.fxX) / comp.fxW, (quadY - comp.fxY) / comp.fxH);
+        gl.uniform2f(uni.u_fxSkin, comp.fxW / destScale, comp.fxH / destScale);
+        gl.uniform4f(uni.u_fxGeo, fx.mosaic, fx.pixelate, fx.whirl, fx.fisheye);
+        gl.uniform4f(uni.u_fxCol, fx.hue, fx.brightness, fx.saturation, fx.opaque);
+        gl.uniform3f(uni.u_fxRgb, fx.red, fx.green, fx.blue);
+    }
+
+    function useItemFx(comp, item) {
+        const fx = item.fx;
+        comp.fx = fx;
+        if (!fx) return;
+        comp.fxX = item.drawXPx;
+        comp.fxY = item.drawYPx;
+        comp.fxW = item.shape.canvas.width;
+        comp.fxH = item.shape.canvas.height;
+        comp.fxShape = item.shape;
+    }
+
+    function glDrawLineSegment(comp, x1, x2, y, lineWidth, color, alpha) {
+        if (!comp.fx) {
+            glDrawSolidRect(comp, (x1 + x2) / 2, y, x2 - x1, lineWidth, color, alpha);
+            return;
+        }
+        const gl = comp.gl;
+        const uni = comp.glyphUniforms;
+        const w = comp.fxW;
+        const h = comp.fxH;
+        drawGLQuad(comp, comp.glyphProgram, uni, comp.fxX, comp.fxY, w, h, w / 2, h / 2, 0, 1);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, comp.getGlyphTexture(comp.fxShape));
+        gl.uniform1i(uni.u_tex, 0);
+        gl.uniform1f(uni.u_alpha, alpha == null ? 1 : alpha);
+        gl.uniform1i(uni.u_mode, 3);
+        gl.uniform4fv(uni.u_tint, hexToRgbaArray(color, 1));
+        gl.uniform4f(
+            uni.u_fxRect,
+            (x1 - comp.fxX) / w, (y - lineWidth / 2 - comp.fxY) / h,
+            (x2 - comp.fxX) / w, (y + lineWidth / 2 - comp.fxY) / h
+        );
+        setFxUniforms(comp, uni, comp.fxX, comp.fxY, w, h);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    function glDrawGlyph(comp, shape, drawX, drawY, tintColor, alpha, rotationRad, scaleAmt, gradient, gradSpan, passthrough, pivotOverrideX, pivotOverrideY) {
         const gl = comp.gl;
         const w = shape.canvas.width;
         const h = shape.canvas.height;
         const uni = comp.glyphUniforms;
-        drawGLQuad(comp, comp.glyphProgram, uni, drawX, drawY, w, h, w / 2, h / 2, rotationRad, scaleAmt);
+        const pivotX = pivotOverrideX != null ? pivotOverrideX - drawX : w / 2;
+        const pivotY = pivotOverrideY != null ? pivotOverrideY - drawY : h / 2;
+        drawGLQuad(comp, comp.glyphProgram, uni, drawX, drawY, w, h, pivotX, pivotY, rotationRad, scaleAmt);
         const forceUpload = shape.canvas === sharedShadowSurface.canvas;
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, comp.getGlyphTexture(shape, forceUpload));
         gl.uniform1i(uni.u_tex, 0);
         gl.uniform1f(uni.u_alpha, alpha);
+        setFxUniforms(comp, uni, drawX, drawY, w, h);
 
         if (passthrough) {
             gl.uniform1i(uni.u_mode, 2);
@@ -4542,6 +5222,10 @@ self.onmessage = async (event) => {
                 gl.uniform1i(uni.u_gradType, 1);
                 gl.uniform2f(uni.u_gradCenter, cx, cy);
                 gl.uniform1f(uni.u_gradRadius, Math.max(1, Math.sqrt(spanW * spanW + spanH * spanH) / 2));
+            } else if (type === 'conic') {
+                gl.uniform1i(uni.u_gradType, 2);
+                gl.uniform2f(uni.u_gradCenter, cx, cy);
+                gl.uniform1f(uni.u_gradStartAngle, (gradient.angle || 0) * Math.PI / 180);
             } else {
                 gl.uniform1i(uni.u_gradType, 0);
                 const angleRad = (gradient.angle || 0) * Math.PI / 180;
@@ -4561,6 +5245,110 @@ self.onmessage = async (event) => {
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
 
+    function beginEffectLayer(comp, width, height) {
+        const gl = comp.gl;
+        if (!comp.effectFramebuffer) {
+            comp.effectFramebuffer = gl.createFramebuffer();
+            comp.effectTexture = gl.createTexture();
+        }
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, comp.effectTexture);
+        if (comp.effectW !== width || comp.effectH !== height) {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            comp.effectW = width;
+            comp.effectH = height;
+        }
+        gl.bindFramebuffer(gl.FRAMEBUFFER, comp.effectFramebuffer);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, comp.effectTexture, 0);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            return false;
+        }
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.blendEquation(gl.FUNC_ADD);
+        comp.effectActive = true;
+        comp.effectBlendMax = false;
+        return true;
+    }
+
+    function endEffectLayer(comp, buffered) {
+        if (!buffered) return;
+        const gl = comp.gl;
+        comp.effectActive = false;
+        comp.effectBlendMax = false;
+        gl.blendEquation(gl.FUNC_ADD);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        const savedBounds = comp.bounds;
+        comp.bounds = null;
+        const ratio = comp.renderRatio;
+        drawGLQuad(comp, comp.effectProgram, comp.effectUniforms, comp.offX, comp.offY, comp.effectW / ratio, comp.effectH / ratio, 0, 0, 0, 1);
+        comp.bounds = savedBounds;
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, comp.effectTexture);
+        gl.uniform1i(comp.effectUniforms.u_tex, 0);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+
+    function setEffectBlend(comp, alpha) {
+        if (!comp.effectActive) return;
+        const useMax = alpha < 0.999;
+        if (comp.effectBlendMax === useMax) return;
+        comp.effectBlendMax = useMax;
+        comp.gl.blendEquation(useMax ? comp.gl.MAX : comp.gl.FUNC_ADD);
+    }
+
+    function effectLayerAlpha(settings, opAlpha) {
+        return opAlpha * clampPercentToUnit(Scratch.Cast.toNumber(settings.opacity));
+    }
+
+    function drawEffectLayer(comp, items, start, end, key, pixelW, pixelH, drawItem) {
+        let count = 0;
+        let translucent = false;
+        for (let i = start; i < end; i++) {
+            const settings = items[i][key];
+            if (!settings) continue;
+            count++;
+            if (effectLayerAlpha(settings, items[i].opAlpha) < 0.999) translucent = true;
+        }
+        if (!count) return;
+        const buffered = translucent && beginEffectLayer(comp, pixelW, pixelH);
+        for (let i = start; i < end; i++) {
+            if (items[i][key]) drawItem(items[i]);
+        }
+        endEffectLayer(comp, buffered);
+    }
+
+    function drawGlyphShadow(comp, shape, shadowSettings, drawXPx, drawYPx, opAlpha, rotationRad, scaleAmt) {
+        const shadowBlurPx = Math.max(0, Scratch.Cast.toNumber(shadowSettings.blur)) * destScale;
+        const shadowOffsetXPx = Scratch.Cast.toNumber(shadowSettings.offsetX) * destScale;
+        const shadowOffsetYPx = Scratch.Cast.toNumber(shadowSettings.offsetY) * destScale;
+        const shadowBitmap = getShadowGlyphBitmap(shape, shadowSettings.color, shadowBlurPx, shadowOffsetXPx, shadowOffsetYPx);
+        const shadowAlpha = opAlpha * clampPercentToUnit(Scratch.Cast.toNumber(shadowSettings.opacity));
+        setEffectBlend(comp, shadowAlpha);
+        glDrawGlyph(comp, shadowBitmap, drawXPx + shadowBitmap.offsetX, drawYPx + shadowBitmap.offsetY, null, shadowAlpha, rotationRad, scaleAmt, null, null, true, null, null);
+    }
+
+    function drawGlyphBorder(comp, shape, borderSettings, drawXPx, drawYPx, opAlpha, rotationRad, scaleAmt, hasRotation, hasScale) {
+        const borderAlpha = opAlpha * clampPercentToUnit(Scratch.Cast.toNumber(borderSettings.opacity));
+        const borderSize = Math.max(0, Scratch.Cast.toNumber(borderSettings.size)) * destScale;
+        const borderOffsets = getBorderOffsets(borderSize);
+        setEffectBlend(comp, borderAlpha);
+        for (const [offsetX, offsetY] of borderOffsets) {
+            if (!hasRotation && !hasScale) {
+                glDrawGlyph(comp, shape, drawXPx + offsetX, drawYPx + offsetY, borderSettings.color, borderAlpha, 0, 1, null, null);
+            } else {
+                glDrawGlyph(comp, shape, drawXPx + offsetX, drawYPx + offsetY, borderSettings.color, borderAlpha, rotationRad, scaleAmt, null, null, false, null, null);
+            }
+        }
+    }
+
     function glDrawSolidRect(comp, cx, cy, w, h, color, alpha) {
         const gl = comp.gl;
         const uni = comp.solidUniforms;
@@ -4574,9 +5362,23 @@ self.onmessage = async (event) => {
         const gl = comp.gl;
         const uni = comp.roundRectUniforms;
         drawGLQuad(comp, comp.roundRectProgram, uni, cx - w / 2, cy - h / 2, w, h, 0, 0, 0, 1);
-        gl.uniform1f(uni.u_radius, radius);
+        gl.uniform1f(uni.u_radius, radius * comp.renderRatio);
         const c = hexToRgbaArray(color, alpha == null ? 1 : alpha);
         gl.uniform4f(uni.u_color, c[0], c[1], c[2], c[3]);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    function glDrawBorderedRoundRect(comp, cx, cy, borderWidth, borderHeight, outerRadius, borderInset, innerRadius, fillColor, fillAlpha, borderColor, borderAlpha) {
+        const gl = comp.gl;
+        const uni = comp.borderedRoundRectUniforms;
+        drawGLQuad(comp, comp.borderedRoundRectProgram, uni, cx - borderWidth / 2, cy - borderHeight / 2, borderWidth, borderHeight, 0, 0, 0, 1);
+        gl.uniform1f(uni.u_outerRadius, outerRadius * comp.renderRatio);
+        gl.uniform1f(uni.u_borderInset, borderInset * comp.renderRatio);
+        gl.uniform1f(uni.u_innerRadius, innerRadius * comp.renderRatio);
+        const fc = hexToRgbaArray(fillColor, fillAlpha == null ? 1 : fillAlpha);
+        gl.uniform4f(uni.u_fillColor, fc[0], fc[1], fc[2], fc[3]);
+        const bc = hexToRgbaArray(borderColor, borderAlpha == null ? 1 : borderAlpha);
+        gl.uniform4f(uni.u_borderColor, bc[0], bc[1], bc[2], bc[3]);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
 
@@ -4595,6 +5397,7 @@ self.onmessage = async (event) => {
         gl.uniformMatrix3fv(uni.u_patternMatrix, false, matrixValues);
         gl.uniform2f(uni.u_texSizePx, w, h);
         gl.uniform1f(uni.u_alpha, alpha);
+        setFxUniforms(comp, uni, drawX, drawY, w, h);
         if (wipeInfo) {
             gl.uniform1i(uni.u_hasWipe, 1);
             gl.uniform1i(uni.u_wipeInvert, wipeInfo.invert ? 1 : 0);
@@ -4616,7 +5419,24 @@ self.onmessage = async (event) => {
             inv.e / texW, inv.f / texH, 1
         ]);
     }
-    function compositeGlyphsToCanvasWebGL2(state, paintOps, docW, docH, textWidth, textHeight, originX, originY) {
+    function getLayeredPaintOps(state, paintOps) {
+        if (state.layeredPaintOpsSource === paintOps && state.layeredPaintOps) return state.layeredPaintOps;
+        let hasLayers = false;
+        for (let i = 0; i < paintOps.length; i++) {
+            if (paintOps[i].layer) {
+                hasLayers = true;
+                break;
+            }
+        }
+        const ordered = hasLayers ?
+            paintOps.slice().sort((a, b) => a.layer - b.layer) :
+            paintOps;
+        state.layeredPaintOpsSource = paintOps;
+        state.layeredPaintOps = ordered;
+        return ordered;
+    }
+
+    function compositeGlyphsToCanvasWebGL2(state, paintOps, docW, docH, textWidth, textHeight, textBoxOffsetX, originX, originY, cull) {
         const comp = getGLCompositor();
         if (!comp) return null;
         const gl = comp.gl;
@@ -4626,8 +5446,16 @@ self.onmessage = async (event) => {
             return null;
         }
 
-        const pixelW = Math.max(1, Math.round(docW * DEST_SCALE));
-        const pixelH = Math.max(1, Math.round(docH * DEST_SCALE));
+        const regionX = cull ? cull.x0 : 0;
+        const regionY = cull ? cull.y0 : 0;
+        const regionW = cull ? cull.x1 - cull.x0 : docW;
+        const regionH = cull ? cull.y1 - cull.y0 : docH;
+        comp.offX = regionX * destScale;
+        comp.offY = regionY * destScale;
+        const renderScale = fitRenderScale(comp, regionW, regionH);
+        comp.renderRatio = renderScale / destScale;
+        const pixelW = Math.max(1, Math.ceil(regionW * renderScale - 1e-6));
+        const pixelH = Math.max(1, Math.ceil(regionH * renderScale - 1e-6));
         if (comp.canvas.width !== pixelW || comp.canvas.height !== pixelH) {
             comp.canvas.width = pixelW;
             comp.canvas.height = pixelH;
@@ -4638,35 +5466,64 @@ self.onmessage = async (event) => {
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.blendEquation(gl.FUNC_ADD);
+        comp.effectActive = false;
+        comp.effectBlendMax = false;
+        comp.fx = null;
+        comp.bounds = {
+            minX: Infinity,
+            minY: Infinity,
+            maxX: -Infinity,
+            maxY: -Infinity
+        };
 
         const background = state.textBackground;
-        if (background.enabled) {
-            const padding = Math.max(0, Scratch.Cast.toNumber(background.padding) || 0) * DEST_SCALE;
-            const width = textWidth * DEST_SCALE + padding * 2;
-            const height = textHeight * DEST_SCALE + padding * 2;
-            const x = originX * DEST_SCALE - width / 2;
-            const y = originY * DEST_SCALE - height / 2;
-            const opacity = Math.max(0, Math.min(100, Scratch.Cast.toNumber(background.opacity) || 0)) / 100;
-            const radius = Math.min(Math.max(0, Scratch.Cast.toNumber(background.radius) || 0) * DEST_SCALE, width / 2, height / 2);
-            glDrawRoundRect(comp, x + width / 2, y + height / 2, width, height, radius, background.color, opacity);
+        const backgroundBorderSize = Math.max(0, Scratch.Cast.toNumber(state.textBackgroundBorder.size)) * destScale;
+        if (background.enabled || backgroundBorderSize > 0) {
+            const padding = Math.max(0, Scratch.Cast.toNumber(background.padding)) * destScale;
+            const width = textWidth * destScale + padding * 2;
+            const height = textHeight * destScale + padding * 2;
+            const x = (originX + textBoxOffsetX) * destScale - width / 2;
+            const y = originY * destScale - height / 2;
+            const rawRadius = Math.max(0, Scratch.Cast.toNumber(background.radius)) * destScale;
+            const radius = Math.min(rawRadius, width / 2, height / 2);
+            const borderRoundness = clampPercentToUnit(Scratch.Cast.toNumber(state.textBackgroundBorder.roundness));
+            if (backgroundBorderSize > 0 && background.enabled) {
+                const borderWidth = width + backgroundBorderSize * 2;
+                const borderHeight = height + backgroundBorderSize * 2;
+                const borderRadius = Math.min(rawRadius + backgroundBorderSize * borderRoundness, borderWidth / 2, borderHeight / 2);
+                const opacity = clampPercentToUnit(Scratch.Cast.toNumber(background.opacity));
+                glDrawBorderedRoundRect(
+                    comp, x + width / 2, y + height / 2, borderWidth, borderHeight,
+                    borderRadius, backgroundBorderSize, radius,
+                    background.color, opacity, state.textBackgroundBorder.color, 1
+                );
+            } else if (backgroundBorderSize > 0) {
+                const borderWidth = width + backgroundBorderSize * 2;
+                const borderHeight = height + backgroundBorderSize * 2;
+                const borderRadius = Math.min(rawRadius + backgroundBorderSize * borderRoundness, borderWidth / 2, borderHeight / 2);
+                glDrawRoundRect(comp, x + width / 2, y + height / 2, borderWidth, borderHeight, borderRadius, state.textBackgroundBorder.color, 1);
+            } else if (background.enabled) {
+                const opacity = clampPercentToUnit(Scratch.Cast.toNumber(background.opacity));
+                glDrawRoundRect(comp, x + width / 2, y + height / 2, width, height, radius, background.color, opacity);
+            }
         }
 
-        const maskSpansByIndex = getSeamlessMaskSpans(state, paintOps, state.layoutKey + '\u0003' + docW + '\u0003' + docH, docW * DEST_SCALE, docH * DEST_SCALE);
+        const maskSpansByIndex = getSeamlessMaskSpans(state, paintOps, state.layoutKey + '\u0003' + docW + '\u0003' + docH, docW * destScale, docH * destScale);
         const gradientSpansByIndex = getGradientSpans(state, paintOps, state.layoutKey + '\u0003' + docW + '\u0003' + docH);
 
-        for (let i = 0; i < paintOps.length; i++) {
-            const op = paintOps[i];
+        const drawOrder = getLayeredPaintOps(state, paintOps);
+        const prepared = [];
+        for (let i = 0; i < drawOrder.length; i++) {
+            const op = drawOrder[i];
             if (op.text === '\u00A0' || op.text === '') continue;
+            if (cull && !opMayBeVisible(op, cull)) continue;
 
-            const fontFamily = op.font['font-family'];
-            const fontSize = op.font['font-size'];
-            const fontWeight = op.font['font-weight'];
-            const fontStyle = op.font['font-style'];
-
-            const shape = getGlyphShape(op.text, fontFamily, fontSize, fontWeight, fontStyle);
+            const shape = getGlyphShapeForFontStyle(op.text, op.font);
+            const isColorEmoji = shape.isColorGlyph && state.emojiMode === 2;
 
             let gradSpan = null;
-            if (op.gradient) {
+            if (op.gradient && !isColorEmoji) {
                 const span = gradientSpansByIndex.get(op.charIndex);
                 if (span) {
                     let localOffsetXPx, localOffsetYPx;
@@ -4678,8 +5535,8 @@ self.onmessage = async (event) => {
                         const baselineYFromLineCenterForSpan = (shape.fontAscentEm - shape.fontDescentEm) / 2;
                         const drawXEmForSpan = op.x - advanceCenterXEmForSpan;
                         const drawYEmForSpan = (op.y + baselineYFromLineCenterForSpan) - shape.baselineOriginYEm;
-                        localOffsetXPx = Math.round(drawXEmForSpan * DEST_SCALE) - span.originX;
-                        localOffsetYPx = Math.round(drawYEmForSpan * DEST_SCALE) - span.originY;
+                        localOffsetXPx = Math.round(drawXEmForSpan * destScale) - span.originX;
+                        localOffsetYPx = Math.round(drawYEmForSpan * destScale) - span.originY;
                     }
                     gradSpan = { spanW: span.spanW, spanH: span.spanH, localOffsetXPx, localOffsetYPx };
                 }
@@ -4689,8 +5546,8 @@ self.onmessage = async (event) => {
             const baselineYFromLineCenter = (shape.fontAscentEm - shape.fontDescentEm) / 2;
             const drawXEm = op.x - advanceCenterXEm;
             const drawYEm = (op.y + baselineYFromLineCenter) - shape.baselineOriginYEm;
-            const drawXPx = drawXEm * DEST_SCALE;
-            const drawYPx = drawYEm * DEST_SCALE;
+            const drawXPx = drawXEm * destScale;
+            const drawYPx = drawYEm * destScale;
 
             const hasOpacity = op.opacity != null && op.opacity !== 1;
             const opAlpha = hasOpacity ? op.opacity : 1;
@@ -4698,151 +5555,204 @@ self.onmessage = async (event) => {
             const hasScale = op.scale != null && op.scale !== 1;
             const rotationRad = hasRotation ? -op.rotation * Math.PI / 180 : 0;
             const scaleAmt = hasScale ? op.scale : 1;
-            const pivotX = op.x * DEST_SCALE - drawXPx;
-            const pivotY = op.y * DEST_SCALE - drawYPx;
+            const blurPx = op.blur > 0 ? (op.blur / 100) * op.font['font-size'] * 0.5 * destScale : 0;
 
-            if (state.textShadow.enabled) {
-                const shadowBlurPx = Math.max(0, Scratch.Cast.toNumber(state.textShadow.blur) || 0) * DEST_SCALE;
-                const shadowOffsetXPx = (Scratch.Cast.toNumber(state.textShadow.offsetX) || 0) * DEST_SCALE;
-                const shadowOffsetYPx = (Scratch.Cast.toNumber(state.textShadow.offsetY) || 0) * DEST_SCALE;
-                const shadowBitmap = getShadowGlyphBitmap(shape, state.textShadow.color, shadowBlurPx, shadowOffsetXPx, shadowOffsetYPx);
-                const shadowAlpha = opAlpha * Math.max(0, Math.min(100, Scratch.Cast.toNumber(state.textShadow.opacity) || 0)) / 100;
-                glDrawGlyph(comp, shadowBitmap, drawXPx + shadowBitmap.offsetX, drawYPx + shadowBitmap.offsetY, null, shadowAlpha, 0, 1, null, null, true);
-            }
+            const charShadow = op.shadow;
+            const activeShadow = charShadow || (state.textShadow.enabled ? state.textShadow : null);
 
-            if (state.textBorder.enabled && Scratch.Cast.toNumber(state.textBorder.size) > 0) {
-                const borderAlpha = opAlpha * Math.max(0, Math.min(100, Scratch.Cast.toNumber(state.textBorder.opacity) || 0)) / 100;
-                const borderSize = Math.max(0, Scratch.Cast.toNumber(state.textBorder.size) || 0) * DEST_SCALE;
-                const borderOffsets = getBorderOffsets(borderSize);
-                for (const [offsetX, offsetY] of borderOffsets) {
-                    if (!hasRotation && !hasScale) {
-                        glDrawGlyph(comp, shape, drawXPx + offsetX, drawYPx + offsetY, state.textBorder.color, borderAlpha, 0, 1, null, null);
-                    } else {
-                        glDrawGlyph(comp, shape, drawXPx + offsetX, drawYPx + offsetY, state.textBorder.color, borderAlpha, rotationRad, scaleAmt, null, null);
-                    }
+            const charBorder = op.border;
+            const charBorderValid = charBorder && Scratch.Cast.toNumber(charBorder.size) > 0;
+            const globalBorderValid = state.textBorder.enabled && Scratch.Cast.toNumber(state.textBorder.size) > 0;
+            const activeBorder = charBorderValid ? charBorder : (globalBorderValid ? state.textBorder : null);
+
+            prepared.push({
+                fx: op.fx || null,
+                op, shape, isColorEmoji, gradSpan, baselineYFromLineCenter,
+                drawXPx, drawYPx, opAlpha, hasRotation, hasScale, rotationRad, scaleAmt, blurPx,
+                shadow: activeShadow,
+                border: !isColorEmoji && activeBorder ? activeBorder : null
+            });
+        }
+
+        let groupStart = 0;
+        while (groupStart < prepared.length) {
+            const groupLayer = prepared[groupStart].op.layer || 0;
+            let groupEnd = groupStart + 1;
+            while (groupEnd < prepared.length && (prepared[groupEnd].op.layer || 0) === groupLayer) groupEnd++;
+
+            drawEffectLayer(comp, prepared, groupStart, groupEnd, 'shadow', pixelW, pixelH, item => {
+                useItemFx(comp, item);
+                drawGlyphShadow(comp, item.shape, item.shadow, item.drawXPx, item.drawYPx, item.opAlpha, item.rotationRad, item.scaleAmt);
+                comp.fx = null;
+            });
+            drawEffectLayer(comp, prepared, groupStart, groupEnd, 'border', pixelW, pixelH, item => {
+                useItemFx(comp, item);
+                drawGlyphBorder(comp, item.shape, item.border, item.drawXPx, item.drawYPx, item.opAlpha, item.rotationRad, item.scaleAmt, item.hasRotation, item.hasScale);
+                comp.fx = null;
+            });
+
+            for (let i = groupStart; i < groupEnd; i++) {
+                const {
+                    op, shape, isColorEmoji, gradSpan, baselineYFromLineCenter,
+                    drawXPx, drawYPx, opAlpha, hasRotation, rotationRad, scaleAmt, blurPx
+                } = prepared[i];
+                useItemFx(comp, prepared[i]);
+
+                if (blurPx > 0 && !op.gradient && !isColorEmoji) {
+                    const blurredBitmap = getBlurredGlyphBitmap(shape, op.color, blurPx);
+                    glDrawGlyph(comp, blurredBitmap, drawXPx + blurredBitmap.offsetX, drawYPx + blurredBitmap.offsetY, null, opAlpha, rotationRad, scaleAmt, null, null, true, null, null);
+                } else {
+                    glDrawGlyph(
+                        comp, shape, drawXPx, drawYPx,
+                        op.color, opAlpha, rotationRad, scaleAmt,
+                        isColorEmoji ? null : op.gradient, gradSpan,
+                        isColorEmoji, null, null
+                    );
                 }
-            }
 
-            glDrawGlyph(
-                comp, shape, drawXPx, drawYPx,
-                op.color, opAlpha, rotationRad, scaleAmt,
-                op.gradient, gradSpan
-            );
+                if (op.mask && !op.gradient && !isColorEmoji) {
+                    const texture = getMaskTexture(op.mask.targetName, op.mask.costumeName);
+                    if (texture) {
+                        const maskOpacity = clampPercentToUnit(Scratch.Cast.toNumber(op.mask.opacity != null ? op.mask.opacity : 100));
+                        const combinedAlpha = opAlpha * maskOpacity;
+                        if (combinedAlpha > 0) {
+                            const span = maskSpansByIndex.get(op.charIndex);
+                            const zoom = Math.max(0.01, (Scratch.Cast.toNumber(op.mask.zoom) || 100) / 100);
+                            const rotation = Scratch.Cast.toNumber(op.mask.rotation);
+                            const anchorX = (op.mask.x || 0) * destScale - drawXPx;
+                            const anchorY = -(op.mask.y || 0) * destScale - drawYPx;
+                            const matrix = new DOMMatrix();
+                            matrix.translateSelf(anchorX, anchorY);
+                            if (rotation !== 0) matrix.rotateSelf(rotation);
+                            matrix.scaleSelf(zoom, zoom);
+                            const glMatrix = domMatrixToGl3x3(matrix, texture.width, texture.height);
 
-            if (op.mask && !op.gradient) {
-                const texture = getMaskTexture(op.mask.targetName, op.mask.costumeName);
-                if (texture) {
-                    const maskOpacity = Math.max(0, Math.min(100, Scratch.Cast.toNumber(op.mask.opacity != null ? op.mask.opacity : 100))) / 100;
-                    const combinedAlpha = opAlpha * maskOpacity;
-                    if (combinedAlpha > 0) {
-                        const span = maskSpansByIndex.get(op.charIndex);
-                        const zoom = Math.max(0.01, (Scratch.Cast.toNumber(op.mask.zoom) || 100) / 100);
-                        const rotation = Scratch.Cast.toNumber(op.mask.rotation) || 0;
-                        const anchorX = (op.mask.x || 0) * DEST_SCALE - drawXPx;
-                        const anchorY = -(op.mask.y || 0) * DEST_SCALE - drawYPx;
-                        const matrix = new DOMMatrix();
-                        matrix.translateSelf(anchorX, anchorY);
-                        if (rotation !== 0) matrix.rotateSelf(rotation);
-                        matrix.scaleSelf(zoom, zoom);
-                        const glMatrix = domMatrixToGl3x3(matrix, texture.width, texture.height);
-
-                        const coverage = Math.max(0, Math.min(100, Scratch.Cast.toNumber(op.mask.coverage != null ? op.mask.coverage : 100))) / 100;
-                        if (coverage > 0) {
-                            let wipeInfo = null;
-                            if (coverage < 1) {
-                                const seamless = !!op.mask.seamless;
-                                const w = shape.canvas.width;
-                                const h = shape.canvas.height;
-                                const localOffsetX = seamless && span ? (span.localOffsetXPx !== undefined ? span.localOffsetXPx : (drawXPx - span.originX)) : 0;
-                                const localOffsetY = seamless && span ? (span.localOffsetYPx !== undefined ? span.localOffsetYPx : (drawYPx - span.originY)) : 0;
-                                const effSpanW = seamless && span && span.spanW ? span.spanW : w;
-                                const effSpanH = seamless && span && span.spanH ? span.spanH : h;
-                                const blurPx = Math.max(0, Scratch.Cast.toNumber(op.mask.blur) || 0) * DEST_SCALE;
-                                const bandHalf = Math.max(0.5, blurPx / 2);
-                                const direction = op.mask.direction || WIPE_DIRECTION_BOTTOM_UP;
-                                const axisIsX = direction === WIPE_DIRECTION_LEFT_RIGHT || direction === WIPE_DIRECTION_RIGHT_LEFT;
-                                const growsPositive = direction === WIPE_DIRECTION_LEFT_RIGHT || direction === WIPE_DIRECTION_UP_DOWN;
-                                let revealEdge;
-                                if (axisIsX && direction === WIPE_DIRECTION_LEFT_RIGHT) {
-                                    revealEdge = effSpanW * coverage - localOffsetX;
-                                } else if (axisIsX) {
-                                    revealEdge = effSpanW - effSpanW * coverage - localOffsetX;
-                                } else if (direction === WIPE_DIRECTION_UP_DOWN) {
-                                    revealEdge = effSpanH * coverage - localOffsetY;
-                                } else {
-                                    revealEdge = effSpanH - effSpanH * coverage - localOffsetY;
+                            const coverage = clampPercentToUnit(Scratch.Cast.toNumber(op.mask.coverage != null ? op.mask.coverage : 100));
+                            if (coverage > 0) {
+                                let wipeInfo = null;
+                                if (coverage < 1) {
+                                    const seamless = !!op.mask.seamless;
+                                    const w = shape.canvas.width;
+                                    const h = shape.canvas.height;
+                                    const localOffsetX = seamless && span ? (span.localOffsetXPx !== undefined ? span.localOffsetXPx : (drawXPx - span.originX)) : 0;
+                                    const localOffsetY = seamless && span ? (span.localOffsetYPx !== undefined ? span.localOffsetYPx : (drawYPx - span.originY)) : 0;
+                                    const effSpanW = seamless && span && span.spanW ? span.spanW : w;
+                                    const effSpanH = seamless && span && span.spanH ? span.spanH : h;
+                                    const blurPx = Math.max(0, Scratch.Cast.toNumber(op.mask.blur)) * destScale;
+                                    const bandHalf = Math.max(0.5, blurPx / 2);
+                                    const direction = op.mask.direction || wipeDirectionBottomUp;
+                                    const axisIsX = direction === wipeDirectionLeftRight || direction === wipeDirectionRightLeft;
+                                    const growsPositive = direction === wipeDirectionLeftRight || direction === wipeDirectionUpDown;
+                                    let revealEdge;
+                                    if (axisIsX && direction === wipeDirectionLeftRight) {
+                                        revealEdge = effSpanW * coverage - localOffsetX;
+                                    } else if (axisIsX) {
+                                        revealEdge = effSpanW - effSpanW * coverage - localOffsetX;
+                                    } else if (direction === wipeDirectionUpDown) {
+                                        revealEdge = effSpanH * coverage - localOffsetY;
+                                    } else {
+                                        revealEdge = effSpanH - effSpanH * coverage - localOffsetY;
+                                    }
+                                    const bandStart = revealEdge - bandHalf;
+                                    const bandEnd = revealEdge + bandHalf;
+                                    wipeInfo = {
+                                        axisX: axisIsX ? 1 : 0,
+                                        axisY: axisIsX ? 0 : 1,
+                                        start: Math.min(bandStart, bandEnd),
+                                        end: Math.max(bandStart, bandEnd),
+                                        invert: growsPositive ? 0 : 1
+                                    };
+                                    if (wipeInfo.end <= wipeInfo.start) {
+                                        wipeInfo.end = wipeInfo.start + 0.0001;
+                                    }
                                 }
-                                const bandStart = revealEdge - bandHalf;
-                                const bandEnd = revealEdge + bandHalf;
-                                wipeInfo = {
-                                    axisX: axisIsX ? 1 : 0,
-                                    axisY: axisIsX ? 0 : 1,
-                                    start: Math.min(bandStart, bandEnd),
-                                    end: Math.max(bandStart, bandEnd),
-                                    invert: growsPositive ? 0 : 1
-                                };
-                                if (wipeInfo.end <= wipeInfo.start) {
-                                    wipeInfo.end = wipeInfo.start + 0.0001;
-                                }
+
+                                glDrawMaskWipe(comp, shape, drawXPx, drawYPx, texture, glMatrix, wipeInfo, combinedAlpha);
                             }
-
-                            glDrawMaskWipe(comp, shape, drawXPx, drawYPx, texture, glMatrix, wipeInfo, combinedAlpha);
                         }
                     }
                 }
+
+                if (op.strike) {
+                    const lineWidth = Math.max(1, op.font['font-size'] * 0.06) * destScale;
+                    const sy = op.y * destScale;
+                    const x0 = (op.x - op.width / 2) * destScale;
+                    const x1 = (op.x + op.width / 2) * destScale;
+                    if (x1 > x0) {
+                        glDrawLineSegment(comp, x0, x1, sy, lineWidth, op.color, opAlpha);
+                    }
+                }
+
+                if (op.underline) {
+                    const lineWidth = Math.max(1, op.font['font-size'] * 0.06) * destScale;
+                    const uy = (op.y + baselineYFromLineCenter + op.font['font-size'] * 0.06) * destScale;
+                    const startX = (op.x - op.width / 2) * destScale;
+                    const endX = (op.x + op.width / 2) * destScale;
+                    if (hasRotation) {
+                        if (endX > startX) glDrawLineSegment(comp, startX, endX, uy, lineWidth, op.color, opAlpha);
+                    } else {
+                        drawUnderlineSegmentsGL(comp, shape, Math.round(drawXPx), Math.round(drawYPx), startX, endX, uy, lineWidth, op.color, opAlpha);
+                    }
+                }
+
+                comp.fx = null;
             }
 
-            if (op.strike) {
-                const lineWidth = Math.max(1, fontSize * 0.06) * DEST_SCALE;
-                const sy = op.y * DEST_SCALE;
-                const x0 = (op.x - op.width / 2) * DEST_SCALE;
-                const x1 = (op.x + op.width / 2) * DEST_SCALE;
-                if (x1 > x0) {
-                    glDrawSolidRect(comp, (x0 + x1) / 2, sy, x1 - x0, lineWidth, op.color, opAlpha);
-                }
-            }
-
-            if (op.underline) {
-                const lineWidth = Math.max(1, fontSize * 0.06) * DEST_SCALE;
-                const uy = (op.y + baselineYFromLineCenter + fontSize * 0.06) * DEST_SCALE;
-                const startX = (op.x - op.width / 2) * DEST_SCALE;
-                const endX = (op.x + op.width / 2) * DEST_SCALE;
-                if (hasRotation) {
-                    if (endX > startX) glDrawSolidRect(comp, (startX + endX) / 2, uy, endX - startX, lineWidth, op.color, opAlpha);
-                } else {
-                    drawUnderlineSegmentsGL(comp, shape, Math.round(drawXPx), Math.round(drawYPx), startX, endX, uy, lineWidth, op.color, opAlpha);
-                }
-            }
+            groupStart = groupEnd;
         }
 
-        if (comp.outputCanvas.width !== pixelW || comp.outputCanvas.height !== pixelH) {
-            comp.outputCanvas.width = pixelW;
-            comp.outputCanvas.height = pixelH;
+        const ratio = comp.renderRatio;
+        const fullW = regionW * destScale;
+        const fullH = regionH * destScale;
+        const bounds = comp.bounds;
+        comp.bounds = null;
+        let cropX = 0;
+        let cropY = 0;
+        let cropEndX = fullW;
+        let cropEndY = fullH;
+        if (bounds && bounds.maxX >= bounds.minX && bounds.maxY >= bounds.minY) {
+            const x0 = Math.max(0, Math.floor((bounds.minX - 2) / destScale) * destScale);
+            const y0 = Math.max(0, Math.floor((bounds.minY - 2) / destScale) * destScale);
+            const x1 = Math.min(fullW, Math.ceil((bounds.maxX + 2) / destScale) * destScale);
+            const y1 = Math.min(fullH, Math.ceil((bounds.maxY + 2) / destScale) * destScale);
+            if (x1 > x0 && y1 > y0) {
+                cropX = x0;
+                cropY = y0;
+                cropEndX = x1;
+                cropEndY = y1;
+            }
+        }
+        const srcX = Math.floor(cropX * ratio + 1e-6);
+        const srcY = Math.floor(cropY * ratio + 1e-6);
+        const srcEndX = Math.min(pixelW, Math.ceil(cropEndX * ratio - 1e-6));
+        const srcEndY = Math.min(pixelH, Math.ceil(cropEndY * ratio - 1e-6));
+        const outW = Math.max(1, srcEndX - srcX);
+        const outH = Math.max(1, srcEndY - srcY);
+        if (comp.outputCanvas.width !== outW || comp.outputCanvas.height !== outH) {
+            comp.outputCanvas.width = outW;
+            comp.outputCanvas.height = outH;
         }
         comp.outputCtx.setTransform(1, 0, 0, 1, 0, 0);
-        comp.outputCtx.clearRect(0, 0, pixelW, pixelH);
-        comp.outputCtx.drawImage(comp.canvas, 0, 0);
+        comp.outputCtx.clearRect(0, 0, outW, outH);
+        comp.outputCtx.drawImage(comp.canvas, srcX, srcY, outW, outH, 0, 0, outW, outH);
+        lastCompositeCrop.x = regionX + srcX / renderScale;
+        lastCompositeCrop.y = regionY + srcY / renderScale;
+        lastCompositeCrop.scale = renderScale;
         return comp.outputCanvas;
     }
 
     function drawUnderlineSegmentsGL(comp, glyph, glyphX, glyphY, startX, endX, y, lineWidth, color, alpha) {
         const stroke = (x1, x2) => {
             if (x2 <= x1) return;
-            glDrawSolidRect(comp, (x1 + x2) / 2, y, x2 - x1, lineWidth, color, alpha);
+            glDrawLineSegment(comp, x1, x2, y, lineWidth, color, alpha);
         };
         try {
             const w = glyph.canvas.width;
-            const inkData = getGlyphInkColumns(glyph);
             const rowStart = Math.max(0, Math.floor(y - glyphY - lineWidth / 2));
             const rowEnd = Math.min(glyph.canvas.height - 1, Math.ceil(y - glyphY + lineWidth / 2));
             const columnStart = Math.max(0, Math.floor(startX - glyphX));
             const columnEnd = Math.min(w - 1, Math.ceil(endX - glyphX));
-            const ink = new Uint8Array(w);
-            for (let py = rowStart; py <= rowEnd; py++) {
-                for (let px = columnStart; px <= columnEnd; px++) {
-                    if (inkData[py * w + px]) ink[px] = 1;
-                }
-            }
+            const ink = getGlyphInkBand(glyph, rowStart, rowEnd);
             const padding = Math.max(1, Math.ceil(lineWidth / 2) + 1);
             let segmentStart = startX;
             let px = columnStart;
@@ -4861,229 +5771,76 @@ self.onmessage = async (event) => {
         }
     }
 
-    function compositeGlyphsToCanvasCanvas2D(state, paintOps, docW, docH, textWidth, textHeight, originX, originY) {
-        let canvas = state.paintCanvas;
-        if (!canvas) {
-            canvas = document.createElement('canvas');
-            canvas.reusable = false;
-            state.paintCanvas = canvas;
-            state.paintCtx = canvas.getContext('2d');
+    function getVirtualTextBounds(state, drawable) {
+        const info = state.cullBounds;
+        if (!info || !drawable._position || !drawable._scale || !Number.isFinite(drawable._direction)) return null;
+        const scaleX = drawable._scale[0] / 100;
+        const scaleY = drawable._scale[1] / 100;
+        if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY)) return null;
+        const angle = (90 - drawable._direction) * Math.PI / 180;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        let left = Infinity;
+        let right = -Infinity;
+        let bottom = Infinity;
+        let top = -Infinity;
+        for (let corner = 0; corner < 4; corner++) {
+            const vx = ((corner & 1 ? info.docW : 0) - info.anchorX) * scaleX;
+            const vy = -((corner & 2 ? info.docH : 0) - info.anchorY) * scaleY;
+            const x = drawable._position[0] + vx * cos - vy * sin;
+            const y = drawable._position[1] + vx * sin + vy * cos;
+            if (x < left) left = x;
+            if (x > right) right = x;
+            if (y < bottom) bottom = y;
+            if (y > top) top = y;
         }
-        const pixelW = Math.max(1, Math.round(docW * DEST_SCALE));
-        const pixelH = Math.max(1, Math.round(docH * DEST_SCALE));
-        if (canvas.width !== pixelW || canvas.height !== pixelH) {
-            canvas.width = pixelW;
-            canvas.height = pixelH;
-        }
-        const ctx = state.paintCtx;
-        ctx.imageSmoothingEnabled = !!state.smoothing;
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, pixelW, pixelH);
-        ctx.textBaseline = 'alphabetic';
+        if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(bottom) || !Number.isFinite(top)) return null;
+        return { left, right, bottom, top };
+    }
 
-        const background = state.textBackground;
-        if (background.enabled) {
-            const padding = Math.max(0, Scratch.Cast.toNumber(background.padding) || 0) * DEST_SCALE;
-            const width = textWidth * DEST_SCALE + padding * 2;
-            const height = textHeight * DEST_SCALE + padding * 2;
-            const x = originX * DEST_SCALE - width / 2;
-            const y = originY * DEST_SCALE - height / 2;
-            ctx.save();
-            ctx.globalAlpha = Math.max(0, Math.min(100, Scratch.Cast.toNumber(background.opacity) || 0)) / 100;
-            ctx.fillStyle = background.color;
-            const radius = Math.min(Math.max(0, Scratch.Cast.toNumber(background.radius) || 0) * DEST_SCALE, width / 2, height / 2);
-            ctx.beginPath();
-            ctx.roundRect(x, y, width, height, radius);
-            ctx.fill();
-            ctx.restore();
-        }
-
-        const maskSpansByIndex = getSeamlessMaskSpans(state, paintOps, state.layoutKey + '\u0003' + docW + '\u0003' + docH, docW * DEST_SCALE, docH * DEST_SCALE);
-        const gradientSpansByIndex = getGradientSpans(state, paintOps, state.layoutKey + '\u0003' + docW + '\u0003' + docH);
-        const gradientScratchCanvases = [];
-
-        const applyCharTransformOp = (op, hasRotation, hasScale) => {
-            const cx = op.x * DEST_SCALE;
-            const cy = op.y * DEST_SCALE;
-            ctx.translate(cx, cy);
-            if (hasRotation) ctx.rotate(-op.rotation * Math.PI / 180);
-            if (hasScale) ctx.scale(op.scale, op.scale);
-            ctx.translate(-cx, -cy);
+    function installCullFenceBounds(skin, state) {
+        skin.getFenceBounds = function(drawable, result) {
+            const rect = drawable.getAABB(result);
+            const bounds = getVirtualTextBounds(state, drawable);
+            if (bounds) rect.initFromBounds(bounds.left, bounds.right, bounds.bottom, bounds.top);
+            return rect;
         };
-        const resetTransform = () => ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
 
-        for (let i = 0; i < paintOps.length; i++) {
-            const op = paintOps[i];
-            if (op.text === '\u00A0' || op.text === '') continue;
-
-            const fontFamily = op.font['font-family'];
-            const fontSize = op.font['font-size'];
-            const fontWeight = op.font['font-weight'];
-            const fontStyle = op.font['font-style'];
-
-            let glyph;
-            if (op.gradient) {
-                const shape = getGlyphShape(op.text, fontFamily, fontSize, fontWeight, fontStyle);
-                const span = shape && gradientSpansByIndex.get(op.charIndex);
-                if (shape && span) {
-                    let localOffsetXPx, localOffsetYPx;
-                    if (span.localOffsetXPx !== undefined) {
-                        localOffsetXPx = span.localOffsetXPx;
-                        localOffsetYPx = span.localOffsetYPx;
-                    } else {
-                        const advanceCenterXEmForSpan = shape.baselineOriginXEm + shape.advance / 2;
-                        const baselineYFromLineCenterForSpan = (shape.fontAscentEm - shape.fontDescentEm) / 2;
-                        const drawXEmForSpan = op.x - advanceCenterXEmForSpan;
-                        const drawYEmForSpan = (op.y + baselineYFromLineCenterForSpan) - shape.baselineOriginYEm;
-                        localOffsetXPx = Math.round(drawXEmForSpan * DEST_SCALE) - span.originX;
-                        localOffsetYPx = Math.round(drawYEmForSpan * DEST_SCALE) - span.originY;
-                    }
-                    const gradientCanvas = tintGlyphGradient(shape, op.gradient, span.spanW, span.spanH, localOffsetXPx, localOffsetYPx);
-                    gradientScratchCanvases.push(gradientCanvas);
-                    glyph = {
-                        canvas: gradientCanvas,
-                        advance: shape.advance,
-                        baselineOriginXEm: shape.baselineOriginXEm,
-                        baselineOriginYEm: shape.baselineOriginYEm,
-                        fontAscentEm: shape.fontAscentEm,
-                        fontDescentEm: shape.fontDescentEm,
-                        shape
-                    };
-                }
-            }
-            if (!glyph) glyph = getGlyphBitmap(op.text, fontFamily, fontSize, fontWeight, fontStyle, op.color);
-
-            const advanceCenterXEm = glyph.baselineOriginXEm + glyph.advance / 2;
-            const baselineYFromLineCenter = (glyph.fontAscentEm - glyph.fontDescentEm) / 2;
-            const drawXEm = op.x - advanceCenterXEm;
-            const drawYEm = (op.y + baselineYFromLineCenter) - glyph.baselineOriginYEm;
-
-            const hasOpacity = op.opacity != null && op.opacity !== 1;
-            const hasRotation = !!op.rotation;
-            const hasScale = op.scale != null && op.scale !== 1;
-            const hasTransform = hasRotation || hasScale;
-
-            if (hasTransform) applyCharTransformOp(op, hasRotation, hasScale);
-
-            if (state.textShadow.enabled) {
-                const shadowShape = glyph.shape || getGlyphShape(op.text, fontFamily, fontSize, fontWeight, fontStyle);
-                const shadowBlurPx = Math.max(0, Scratch.Cast.toNumber(state.textShadow.blur) || 0) * DEST_SCALE;
-                const shadowOffsetXPx = (Scratch.Cast.toNumber(state.textShadow.offsetX) || 0) * DEST_SCALE;
-                const shadowOffsetYPx = (Scratch.Cast.toNumber(state.textShadow.offsetY) || 0) * DEST_SCALE;
-                const shadowBitmap = getShadowGlyphBitmap(shadowShape, state.textShadow.color, shadowBlurPx, shadowOffsetXPx, shadowOffsetYPx);
-                ctx.globalAlpha = (hasOpacity ? op.opacity : 1) * Math.max(0, Math.min(100, Scratch.Cast.toNumber(state.textShadow.opacity) || 0)) / 100;
-                ctx.drawImage(shadowBitmap.canvas, drawXEm * DEST_SCALE + shadowBitmap.offsetX, drawYEm * DEST_SCALE + shadowBitmap.offsetY);
-                ctx.globalAlpha = 1;
-            }
-
-            if (state.textBorder.enabled && Scratch.Cast.toNumber(state.textBorder.size) > 0) {
-                const shape = glyph.shape || getGlyphShape(op.text, fontFamily, fontSize, fontWeight, fontStyle);
-                const borderGlyph = tintGlyph(shape, state.textBorder.color);
-                ctx.globalAlpha = (hasOpacity ? op.opacity : 1) * Math.max(0, Math.min(100, Scratch.Cast.toNumber(state.textBorder.opacity) || 0)) / 100;
-                const borderSize = Math.max(0, Scratch.Cast.toNumber(state.textBorder.size) || 0) * DEST_SCALE;
-                const borderOffsets = getBorderOffsets(borderSize);
-                for (const [offsetX, offsetY] of borderOffsets) {
-                    ctx.drawImage(borderGlyph, drawXEm * DEST_SCALE + offsetX, drawYEm * DEST_SCALE + offsetY);
-                }
-                ctx.globalAlpha = 1;
-            }
-
-            if (!hasTransform) {
-                const px = Math.round(drawXEm * DEST_SCALE);
-                const py = Math.round(drawYEm * DEST_SCALE);
-                if (hasOpacity) {
-                    ctx.globalAlpha = op.opacity;
-                    ctx.drawImage(glyph.canvas, px, py);
-                    ctx.globalAlpha = 1;
-                } else {
-                    ctx.drawImage(glyph.canvas, px, py);
-                }
-            } else {
-                if (hasOpacity) ctx.globalAlpha = op.opacity;
-                ctx.drawImage(glyph.canvas, drawXEm * DEST_SCALE, drawYEm * DEST_SCALE);
-                if (hasOpacity) ctx.globalAlpha = 1;
-            }
-
-            if (op.mask && !op.gradient) {
-                const texture = getMaskTexture(op.mask.targetName, op.mask.costumeName);
-                if (texture) {
-                    const px = Math.round(drawXEm * DEST_SCALE);
-                    const py = Math.round(drawYEm * DEST_SCALE);
-                    const span = maskSpansByIndex.get(op.charIndex);
-                    const maskOpacity = Math.max(0, Math.min(100, Scratch.Cast.toNumber(op.mask.opacity != null ? op.mask.opacity : 100))) / 100;
-                    const combinedAlpha = (hasOpacity ? op.opacity : 1) * maskOpacity;
-                    if (combinedAlpha > 0) {
-                        if (!hasTransform) {
-                            drawMaskedGlyph(
-                                ctx, op.text, fontFamily, fontSize, fontWeight, fontStyle,
-                                op.mask, texture, px, py,
-                                span ? span.spanW : 0, span ? span.spanH : 0,
-                                span ? span.originX : 0, span ? span.originY : 0,
-                                px, py, combinedAlpha
-                            );
-                        } else {
-                            drawMaskedGlyph(
-                                ctx, op.text, fontFamily, fontSize, fontWeight, fontStyle,
-                                op.mask, texture, px, py,
-                                span ? span.spanW : 0, span ? span.spanH : 0,
-                                span ? span.originX : 0, span ? span.originY : 0,
-                                drawXEm * DEST_SCALE, drawYEm * DEST_SCALE, combinedAlpha
-                            );
-                        }
-                    }
-                }
-            }
-
-            if (op.strike) {
-                if (hasOpacity) ctx.globalAlpha = op.opacity;
-                ctx.strokeStyle = op.color;
-                ctx.lineWidth = Math.max(1, fontSize * 0.06) * DEST_SCALE;
-                const sy = op.y * DEST_SCALE;
-                ctx.beginPath();
-                ctx.moveTo((op.x - op.width / 2) * DEST_SCALE, sy);
-                ctx.lineTo((op.x + op.width / 2) * DEST_SCALE, sy);
-                ctx.stroke();
-                if (hasOpacity) ctx.globalAlpha = 1;
-            }
-
-            if (op.underline) {
-                if (hasOpacity) ctx.globalAlpha = op.opacity;
-                ctx.strokeStyle = op.color;
-                const lineWidth = Math.max(1, fontSize * 0.06) * DEST_SCALE;
-                ctx.lineWidth = lineWidth;
-                const uy = (op.y + baselineYFromLineCenter + fontSize * 0.06) * DEST_SCALE;
-                const startX = (op.x - op.width / 2) * DEST_SCALE;
-                const endX = (op.x + op.width / 2) * DEST_SCALE;
-                if (hasRotation) {
-                    ctx.beginPath();
-                    ctx.moveTo(startX, uy);
-                    ctx.lineTo(endX, uy);
-                    ctx.stroke();
-                } else {
-                    strokeUnderline(ctx, glyph, Math.round(drawXEm * DEST_SCALE), Math.round(drawYEm * DEST_SCALE), startX, endX, uy, lineWidth);
-                }
-                if (hasOpacity) ctx.globalAlpha = 1;
-            }
-
-            if (hasTransform) resetTransform();
-        }
-
-        for (let gi = 0; gi < gradientScratchCanvases.length; gi++) {
-            releasePooledCanvas(tintedCanvasPool, gradientScratchCanvases[gi]);
-        }
-
-        return canvas;
+    // the reason this exists is because culling was interfering with the Scratch renderer. i couldnt find another way of fixing it... so this is what you get
+    function installCullDrawableBounds(target, drawable) {
+        if (drawable.irisCullBounds) return;
+        const proto = Object.getPrototypeOf(drawable);
+        if (!proto || typeof proto.getFastBounds !== 'function' || typeof proto.getAABB !== 'function') return;
+        drawable.irisCullBounds = true;
+        drawable.getFastBounds = function(result) {
+            const state = target.getCustomState(stateKey);
+            const bounds = state && state.cullBounds ? getVirtualTextBounds(state, this) : null;
+            if (!bounds) return proto.getFastBounds.call(this, result);
+            const rect = proto.getAABB.call(this, result);
+            rect.initFromBounds(bounds.left, bounds.right, bounds.bottom, bounds.top);
+            return rect;
+        };
     }
 
     function installLinearFiltering(skin, state) {
         skin.useNearest = function(scale) {
             if (!state.smoothing) return true;
             const s = Math.max(Math.abs(scale[0]), Math.abs(scale[1]));
-            return s >= (DEST_SCALE * 100 - 5);
+            return s >= ((skin._costumeResolution || destScale) * 100 - 5);
         };
     }
 
-    function pushCanvasToDrawable(target, canvas, width, height, anchorX, anchorY) {
+    function pushCanvasToDrawable(target, canvas, width, height, anchorX, anchorY, resolution) {
+        const startTime = perfStart();
+        try {
+            pushCanvasToDrawableNow(target, canvas, width, height, anchorX, anchorY, resolution);
+        } finally {
+            perfEnd('render.pushSkin', startTime);
+        }
+    }
+
+    function pushCanvasToDrawableNow(target, canvas, width, height, anchorX, anchorY, resolution) {
         const state = getState(target);
         const renderer = runtime.renderer;
         if (!renderer) return;
@@ -5097,42 +5854,27 @@ self.onmessage = async (event) => {
             const skinId = renderer._nextSkinId++;
             const skin = new BitmapSkin(skinId, renderer);
             installLinearFiltering(skin, state);
-            skin.setBitmap(canvas, DEST_SCALE, rotationCenter);
+            installCullFenceBounds(skin, state);
+            skin.setBitmap(canvas, resolution || destScale, rotationCenter);
             renderer._allSkins[skinId] = skin;
             state.skinId = skinId;
         } else {
-            renderer.updateBitmapSkin(state.skinId, canvas, DEST_SCALE, rotationCenter);
+            renderer.updateBitmapSkin(state.skinId, canvas, resolution || destScale, rotationCenter);
             const current = renderer._allSkins[state.skinId];
             if (current && !Object.prototype.hasOwnProperty.call(current, 'useNearest')) {
                 installLinearFiltering(current, state);
             }
+            if (current && !Object.prototype.hasOwnProperty.call(current, 'getFenceBounds')) {
+                installCullFenceBounds(current, state);
+            }
         }
         const drawable = renderer._allDrawables[target.drawableID];
+        if (drawable && state.cullBounds) installCullDrawableBounds(target, drawable);
         const skin = renderer._allSkins[state.skinId];
         if (!drawable || drawable.skin !== skin) {
             renderer.updateDrawableSkinId(target.drawableID, state.skinId);
         }
         runtime.requestRedraw();
-    }
-
-    function pushImageBitmapToDrawable(target, bitmap, pixelW, pixelH, docW, docH) {
-        const state = getState(target);
-        let scratch = state.workerResultCanvas;
-        if (!scratch) {
-            scratch = document.createElement('canvas');
-            scratch.reusable = false;
-            state.workerResultCanvas = scratch;
-        }
-        if (scratch.width !== pixelW || scratch.height !== pixelH) {
-            scratch.width = pixelW;
-            scratch.height = pixelH;
-        }
-        const sctx = scratch.getContext('2d');
-        sctx.setTransform(1, 0, 0, 1, 0, 0);
-        sctx.clearRect(0, 0, pixelW, pixelH);
-        sctx.drawImage(bitmap, 0, 0);
-        bitmap.close();
-        pushCanvasToDrawable(target, scratch, docW, docH);
     }
 
     function clearTarget(target) {
@@ -5218,7 +5960,7 @@ self.onmessage = async (event) => {
         return indices;
     }
 
-    const WORD_SPLIT_RE = /\S+/g;
+    const wordSplitRe = /\S+/g;
 
     function wordSpans(target) {
         const state = getState(target);
@@ -5228,9 +5970,9 @@ self.onmessage = async (event) => {
         }
         const plain = stripMarkup(state.rawText);
         const spans = [];
-        WORD_SPLIT_RE.lastIndex = 0;
+        wordSplitRe.lastIndex = 0;
         let match;
-        while ((match = WORD_SPLIT_RE.exec(plain)) !== null) {
+        while ((match = wordSplitRe.exec(plain)) !== null) {
             spans.push({ text: match[0], index: match.index, charIndex: match.index + 1 });
         }
         state.wordSpansCache = spans;
@@ -5242,18 +5984,10 @@ self.onmessage = async (event) => {
         constructor() {
             this._onTargetRemoved = this._onTargetRemoved.bind(this);
             this._onProjectStopAll = this._onProjectStopAll.bind(this);
-            const nonChromiumBrowser = detectNonChromiumBrowser();
-            if (nonChromiumBrowser) {
-                anyDisclaimerApplicable = true;
-                if (!hasSeenDisclaimer(BROWSER_DISCLAIMER_FLAG_KEY)) this.browserDisclaimer(nonChromiumBrowser);
-            } else if (!supportsRenderWorker()) {
-                anyDisclaimerApplicable = true;
-                if (!hasSeenDisclaimer(WORKER_DISCLAIMER_FLAG_KEY)) this.disclaimer();
-            }
-            ensureRenderWorker();
             if (runtime.ext_irisText && runtime.ext_irisText !== this) {
                 runtime.removeListener('targetWasRemoved', runtime.ext_irisText._onTargetRemoved);
                 runtime.removeListener('PROJECT_STOP_ALL', runtime.ext_irisText._onProjectStopAll);
+                if (typeof runtime.ext_irisText._destroyGlyphWorker === 'function') runtime.ext_irisText._destroyGlyphWorker();
             }
             runtime.on('targetWasRemoved', this._onTargetRemoved);
             runtime.on('PROJECT_STOP_ALL', this._onProjectStopAll);
@@ -5261,6 +5995,33 @@ self.onmessage = async (event) => {
             if (typeof runtime.registerCompiledExtensionBlocks === 'function') {
                 runtime.registerCompiledExtensionBlocks('irisText', this.getCompileInfo());
             }
+            ensurePreDrawHook();
+            startGlyphWorker();
+            startupWarmup();
+        }
+
+        setPerfEnabled(enabled) {
+            perf.enabled = !!enabled;
+        }
+
+        resetPerf() {
+            perf.stats.clear();
+        }
+
+        getPerfReport() {
+            return perfReport();
+        }
+
+        setGlyphWorkerEnabled(enabled) {
+            setGlyphWorkerEnabled(enabled);
+        }
+
+        getGlyphWorkerStatus() {
+            return glyphWorkerStatus();
+        }
+
+        _destroyGlyphWorker() {
+            destroyGlyphWorker();
         }
 
         *_repeatCompiledTag(tagInput, func, thread, target, stage) {
@@ -5301,70 +6062,6 @@ self.onmessage = async (event) => {
                 rootFrame.irisTagCharacterNumber = words[i].charIndex;
                 yield* func(thread, target, runtime, stage);
             }
-        }
-
-        async disclaimer() {
-            const disclaimerText = `Hey there! You are currently seeing this prompt because <b>your current environment lacks support for proper multi-threading</b>.
-            
-            Please be aware that this will make Iris Text VERY slow with certain operations. <b>Moving to another browser, preferably Chromium-based,</b> will mitigate this issue.
-            
-            Sorry for the inconvenience, and enjoy using Iris Text! :D`;
-
-            if (typeof scaffolding !== "undefined") return;
-            if (ScratchBlocks.customPrompt) {
-                const modal = await ScratchBlocks.customPrompt({
-                        title: "Disclaimer!"
-                    }, {
-                        content: {
-                            width: "500px"
-                        }
-                    },
-                    [{
-                        name: "OK",
-                        role: "ok",
-                        callback: () => console.log("Confirmed")
-                    }]
-                );
-
-                const p = document.createElement("p");
-                p.innerHTML = disclaimerText.replace(/\n/g, "<br>");
-                modal.appendChild(p);
-            } else {
-                alert(disclaimerText);
-            }
-            markDisclaimerSeen(WORKER_DISCLAIMER_FLAG_KEY);
-        }
-
-        async browserDisclaimer(browserName) {
-            const disclaimerText = `Hello! You're currently using <b>${browserName}</b>. Now, that's great and all, but <b>this extension is known to fail in most non-chromium browsers</b> out there. It will most likely be extremely slow.
-            
-            I really recommend switching browsers. If the block icon doesn't have a warning triangle next to it, then you're clear!
-            
-            In either case, <b>have fun using Iris Text</b>! :)`;
-
-            if (typeof scaffolding !== "undefined") return;
-            if (ScratchBlocks.customPrompt) {
-                const modal = await ScratchBlocks.customPrompt({
-                        title: "Disclaimer!"
-                    }, {
-                        content: {
-                            width: "500px"
-                        }
-                    },
-                    [{
-                        name: "OK",
-                        role: "ok",
-                        callback: () => console.log("Confirmed")
-                    }]
-                );
-
-                const p = document.createElement("p");
-                p.innerHTML = disclaimerText.replace(/\n/g, "<br>");
-                modal.appendChild(p);
-            } else {
-                alert(disclaimerText);
-            }
-            markDisclaimerSeen(BROWSER_DISCLAIMER_FLAG_KEY);
         }
 
         getCompileInfo() {
@@ -5453,19 +6150,19 @@ self.onmessage = async (event) => {
         }
 
         _onTargetRemoved(target) {
-            const state = target.getCustomState(STATE_KEY);
+            glyphWorker.waiters.delete(target);
+            const state = target.getCustomState(stateKey);
             if (state && state.skinId !== null && runtime.renderer) {
                 runtime.renderer.destroySkin(state.skinId);
                 state.skinId = null;
             }
-            if (state) disposeStateFromWorker(state);
             clearCharAnimationsForTarget(target.id);
             if (!charAnimations.size) releaseAnimationTicker();
         }
 
         _onProjectStopAll() {
             runtime.targets.forEach(t => {
-                const state = t.getCustomState(STATE_KEY);
+                const state = t.getCustomState(stateKey);
                 if (state) state.isTyping = false;
             });
             charAnimations.clear();
@@ -5478,10 +6175,10 @@ self.onmessage = async (event) => {
                 id: 'g1nxIrisText',
                 name: 'Iris Text',
                 docsURI: 'https://hackmd.io/@Gen1x01/iris-text',
-                color1: COLOR_PRIMARY,
-                color2: COLOR_SECONDARY,
-                color3: COLOR_TERTIARY,
-                blockIconURI: anyDisclaimerApplicable ? warningBlockIconURI : blockIconURI,
+                color1: colorPrimary,
+                color2: colorSecondary,
+                color3: colorTertiary,
+                blockIconURI: blockIconURI,
                 blocks: [{
                         blockType: Scratch.BlockType.LABEL,
                         text: 'Display'
@@ -5493,7 +6190,7 @@ self.onmessage = async (event) => {
                         arguments: {
                             TEXT: {
                                 type: Scratch.ArgumentType.STRING,
-                                defaultValue: DEFAULT_TEXT
+                                defaultValue: defaultText
                             }
                         }
                     },
@@ -5551,7 +6248,7 @@ self.onmessage = async (event) => {
                             FONT: {
                                 type: Scratch.ArgumentType.STRING,
                                 menu: 'FONT',
-                                defaultValue: HANDWRITING_ID
+                                defaultValue: handwritingId
                             }
                         }
                     },
@@ -5580,6 +6277,47 @@ self.onmessage = async (event) => {
                         }
                     },
                     {
+                        opcode: 'setSmoothingForThisSprite',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'turn smoothing [ENABLED] for [SPRITE]',
+                        arguments: {
+                            ENABLED: {
+                                type: Scratch.ArgumentType.STRING,
+                                menu: 'ONOFF',
+                                defaultValue: 'on'
+                            },
+                            SPRITE: {
+                                type: Scratch.ArgumentType.STRING,
+                                menu: 'SPRITE',
+                                defaultValue: '_myself_'
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'setOffscreenCulling',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'offscreen culling (experimental) [ENABLED]',
+                        arguments: {
+                            ENABLED: {
+                                type: Scratch.ArgumentType.STRING,
+                                menu: 'ONOFF',
+                                defaultValue: 'off'
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'setEmojiMode',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'set emoji mode to [MODE]',
+                        arguments: {
+                            MODE: {
+                                type: Scratch.ArgumentType.STRING,
+                                menu: 'EMOJI_MODE',
+                                defaultValue: 'colored'
+                            }
+                        }
+                    },
+                    {
                         opcode: 'setGrowDownwardOnly',
                         blockType: Scratch.BlockType.COMMAND,
                         text: 'grow downward only [ENABLED]',
@@ -5602,7 +6340,7 @@ self.onmessage = async (event) => {
                         arguments: {
                             TEXT: {
                                 type: Scratch.ArgumentType.STRING,
-                                defaultValue: DEFAULT_TEXT
+                                defaultValue: defaultText
                             }
                         }
                     },
@@ -5613,7 +6351,7 @@ self.onmessage = async (event) => {
                         arguments: {
                             TEXT: {
                                 type: Scratch.ArgumentType.STRING,
-                                defaultValue: DEFAULT_TEXT
+                                defaultValue: defaultText
                             }
                         }
                     },
@@ -5644,6 +6382,17 @@ self.onmessage = async (event) => {
                                 menu: 'TYPING_GROUP',
                                 defaultValue: 'default'
                             },
+                            SECONDS: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 0.05
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'setAllTypingSpeeds',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'set typing speed for all categories to [SECONDS] seconds',
+                        arguments: {
                             SECONDS: {
                                 type: Scratch.ArgumentType.NUMBER,
                                 defaultValue: 0.05
@@ -5801,6 +6550,52 @@ self.onmessage = async (event) => {
                             PADDING: {
                                 type: Scratch.ArgumentType.NUMBER,
                                 defaultValue: 8
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'setBackgroundBorder',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'set background border color to [COLOR] size to [SIZE]',
+                        arguments: {
+                            COLOR: {
+                                type: Scratch.ArgumentType.COLOR
+                            },
+                            SIZE: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 2
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'setBackgroundBorderColor',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'set background border color to [COLOR]',
+                        arguments: {
+                            COLOR: {
+                                type: Scratch.ArgumentType.COLOR
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'setBackgroundBorderSize',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'set background border size to [SIZE]',
+                        arguments: {
+                            SIZE: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 2
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'setBackgroundBorderRoundness',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'set background border roundness to [ROUNDNESS] %',
+                        arguments: {
+                            ROUNDNESS: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 100
                             }
                         }
                     },
@@ -6202,6 +6997,26 @@ self.onmessage = async (event) => {
                             }
                         }
                     },
+                    {
+                        opcode: 'setCharEffect',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'set character [INDEX] [EFFECT] effect to [VALUE]',
+                        arguments: {
+                            INDEX: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 1
+                            },
+                            EFFECT: {
+                                type: Scratch.ArgumentType.STRING,
+                                menu: 'EFFECT',
+                                defaultValue: 'whirl'
+                            },
+                            VALUE: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 50
+                            }
+                        }
+                    },
                     '---',
                     {
                         opcode: 'animateChar',
@@ -6592,6 +7407,49 @@ self.onmessage = async (event) => {
                     },
                     {
                         blockType: Scratch.BlockType.LABEL,
+                        text: 'Performance'
+                    },
+                    {
+                        opcode: 'setPerformanceEnabled',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'performance report [ENABLED]',
+                        arguments: {
+                            ENABLED: {
+                                type: Scratch.ArgumentType.STRING,
+                                menu: 'ONOFF',
+                                defaultValue: 'off'
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'resetPerformance',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'reset performance stats'
+                    },
+                    {
+                        opcode: 'getPerformanceReport',
+                        blockType: Scratch.BlockType.REPORTER,
+                        text: 'performance report'
+                    },
+                    {
+                        opcode: 'setGlyphWorkerEnabledBlock',
+                        blockType: Scratch.BlockType.COMMAND,
+                        text: 'glyph worker [ENABLED]',
+                        arguments: {
+                            ENABLED: {
+                                type: Scratch.ArgumentType.STRING,
+                                menu: 'ONOFF',
+                                defaultValue: 'on'
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'getGlyphWorkerStatusBlock',
+                        blockType: Scratch.BlockType.REPORTER,
+                        text: 'glyph worker status'
+                    },
+                    {
+                        blockType: Scratch.BlockType.LABEL,
                         text: 'Text Info'
                     },
                     {
@@ -6624,6 +7482,23 @@ self.onmessage = async (event) => {
                             INDEX: {
                                 type: Scratch.ArgumentType.NUMBER,
                                 defaultValue: 1
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'getCharDimension',
+                        blockType: Scratch.BlockType.REPORTER,
+                        text: 'character [INDEX] [DIMENSION]',
+                        disableMonitor: true,
+                        arguments: {
+                            INDEX: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 1
+                            },
+                            DIMENSION: {
+                                type: Scratch.ArgumentType.STRING,
+                                menu: 'DIMENSION',
+                                defaultValue: 'width'
                             }
                         }
                     },
@@ -6689,11 +7564,90 @@ self.onmessage = async (event) => {
                             TYPE: {
                                 type: Scratch.ArgumentType.STRING,
                                 menu: 'GRADIENT_TYPE',
-                                defaultValue: GRADIENT_TYPE_LINEAR
+                                defaultValue: gradientTypeLinear
                             },
                             ANGLE: {
                                 type: Scratch.ArgumentType.NUMBER,
                                 defaultValue: 0
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'shadowMarkup',
+                        blockType: Scratch.BlockType.REPORTER,
+                        text: 'shadow [TEXT] with color [COLOR] opacity [OPACITY] % blur [BLUR] offset x [OFFSET_X] y [OFFSET_Y]',
+                        arguments: {
+                            TEXT: {
+                                type: Scratch.ArgumentType.STRING,
+                                defaultValue: 'dramatic'
+                            },
+                            COLOR: {
+                                type: Scratch.ArgumentType.COLOR
+                            },
+                            OPACITY: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 50
+                            },
+                            BLUR: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 8
+                            },
+                            OFFSET_X: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 0
+                            },
+                            OFFSET_Y: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 0
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'borderMarkup',
+                        blockType: Scratch.BlockType.REPORTER,
+                        text: 'border [TEXT] with color [COLOR] opacity [OPACITY] % size [SIZE]',
+                        arguments: {
+                            TEXT: {
+                                type: Scratch.ArgumentType.STRING,
+                                defaultValue: 'outlined'
+                            },
+                            COLOR: {
+                                type: Scratch.ArgumentType.COLOR
+                            },
+                            OPACITY: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 100
+                            },
+                            SIZE: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 2
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'perspectiveMarkup',
+                        blockType: Scratch.BlockType.REPORTER,
+                        text: 'perspective [TEXT] to x [X] y [Y] rotation [ROTATION] scale [SCALE] %',
+                        arguments: {
+                            TEXT: {
+                                type: Scratch.ArgumentType.STRING,
+                                defaultValue: 'PERSPECTIVE'
+                            },
+                            X: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 0
+                            },
+                            Y: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 0
+                            },
+                            ROTATION: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 0
+                            },
+                            SCALE: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 45
                             }
                         }
                     },
@@ -6729,6 +7683,56 @@ self.onmessage = async (event) => {
                         }
                     },
                     {
+                        opcode: 'blurMarkup',
+                        blockType: Scratch.BlockType.REPORTER,
+                        text: 'blur [TEXT] by [INTENSITY] %',
+                        arguments: {
+                            TEXT: {
+                                type: Scratch.ArgumentType.STRING,
+                                defaultValue: 'hazy'
+                            },
+                            INTENSITY: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 50
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'layerMarkup',
+                        blockType: Scratch.BlockType.REPORTER,
+                        text: 'layer [TEXT] on layer [LAYER]',
+                        arguments: {
+                            TEXT: {
+                                type: Scratch.ArgumentType.STRING,
+                                defaultValue: 'on top'
+                            },
+                            LAYER: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 1
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'effectMarkup',
+                        blockType: Scratch.BlockType.REPORTER,
+                        text: 'apply [EFFECT] effect [VALUE] to [TEXT]',
+                        arguments: {
+                            TEXT: {
+                                type: Scratch.ArgumentType.STRING,
+                                defaultValue: 'twisted'
+                            },
+                            EFFECT: {
+                                type: Scratch.ArgumentType.STRING,
+                                menu: 'EFFECT',
+                                defaultValue: 'whirl'
+                            },
+                            VALUE: {
+                                type: Scratch.ArgumentType.NUMBER,
+                                defaultValue: 50
+                            }
+                        }
+                    },
+                    {
                         opcode: 'fontMarkup',
                         blockType: Scratch.BlockType.REPORTER,
                         text: 'font [TEXT] as [FONT]',
@@ -6740,7 +7744,7 @@ self.onmessage = async (event) => {
                             FONT: {
                                 type: Scratch.ArgumentType.STRING,
                                 menu: 'FONT',
-                                defaultValue: HANDWRITING_ID
+                                defaultValue: handwritingId
                             }
                         }
                     },
@@ -6775,6 +7779,9 @@ self.onmessage = async (event) => {
                     ONOFF: {
                         items: ['on', 'off']
                     },
+                    EMOJI_MODE: {
+                        items: ['colored', 'native']
+                    },
                     ALIGN: {
                         items: ['left', 'center', 'right', 'justify']
                     },
@@ -6782,7 +7789,7 @@ self.onmessage = async (event) => {
                         items: ['bold', 'italic', 'underline', 'strikethrough']
                     },
                     GRADIENT_TYPE: {
-                        items: [GRADIENT_TYPE_LINEAR, GRADIENT_TYPE_RADIAL, GRADIENT_TYPE_CONIC]
+                        items: [gradientTypeLinear, gradientTypeRadial, gradientTypeConic]
                     },
                     TYPING_GROUP: {
                         items: ['default', 'symbols', 'punctuation', 'numbers']
@@ -6799,7 +7806,7 @@ self.onmessage = async (event) => {
                         items: 'getMaskCostumeMenuItems'
                     },
                     WIPE_DIRECTION: {
-                        items: [WIPE_DIRECTION_BOTTOM_UP, WIPE_DIRECTION_LEFT_RIGHT, WIPE_DIRECTION_UP_DOWN, WIPE_DIRECTION_RIGHT_LEFT]
+                        items: [wipeDirectionBottomUp, wipeDirectionLeftRight, wipeDirectionUpDown, wipeDirectionRightLeft]
                     },
                     AXIS: {
                         items: ['x', 'y']
@@ -6815,9 +7822,35 @@ self.onmessage = async (event) => {
                     },
                     WAIT_MODE: {
                         items: ['wait', "don't wait"]
+                    },
+                    DIMENSION: {
+                        items: ['width', 'height']
+                    },
+                    EFFECT: {
+                        items: effectNames
                     }
                 }
             };
+        }
+
+        setPerformanceEnabled(args, util) {
+            this.setPerfEnabled(args.ENABLED === 'on');
+        }
+
+        resetPerformance(args, util) {
+            this.resetPerf();
+        }
+
+        getPerformanceReport(args, util) {
+            return JSON.stringify(this.getPerfReport());
+        }
+
+        setGlyphWorkerEnabledBlock(args, util) {
+            this.setGlyphWorkerEnabled(args.ENABLED === 'on');
+        }
+
+        getGlyphWorkerStatusBlock(args, util) {
+            return JSON.stringify(this.getGlyphWorkerStatus());
         }
 
         setText(args, util) {
@@ -6875,7 +7908,9 @@ self.onmessage = async (event) => {
             state.rawText = existingText + linePrefix + text;
             state.finalText = stripMarkup(state.rawText);
             state.visible = true;
-            schedulePaint(util.target, state);
+            state.paintDirty = true;
+            state.paintFingerprint = null;
+            scheduleTextRender(util.target);
         }
 
         _typeText(args, util, appendLine) {
@@ -6952,7 +7987,7 @@ self.onmessage = async (event) => {
                 schedulePaint(util.target, state);
                 startTypingCharacterHat(util.target, step.char, frame.irisTypingCharIndex++);
 
-                const delay = Math.max(0, Scratch.Cast.toNumber(typingDelayForCharacter(state, step.char)) || 0);
+                const delay = Math.max(0, Scratch.Cast.toNumber(typingDelayForCharacter(state, step.char)));
                 if (delay > 0) {
                     frame.irisTypingWaitUntil = Date.now() + delay * 1000;
                     util.yieldTick();
@@ -7017,7 +8052,7 @@ self.onmessage = async (event) => {
         setFont(args, util) {
             const state = getState(util.target);
             const requested = Scratch.Cast.toString(args.FONT);
-            const font = requested === RANDOM_ID ?
+            const font = requested === randomId ?
                 randomFontOtherThan(state.baseStyle.font) :
                 requested;
             if (state.baseStyle.font === font) return;
@@ -7114,6 +8149,37 @@ self.onmessage = async (event) => {
             schedulePaint(util.target, state);
         }
 
+        setSmoothingForThisSprite(args, util) {
+            const sprite = Scratch.Cast.toString(args.SPRITE);
+            const target = sprite === '_myself_' ?
+                util.target :
+                runtime.getSpriteTargetByName(sprite);
+            if (!target) return;
+            const state = getState(target);
+            const smoothing = Scratch.Cast.toString(args.ENABLED).toLowerCase() === 'on';
+            if (state.smoothing === smoothing) return;
+            state.smoothing = smoothing;
+            schedulePaint(target, state);
+        }
+
+        setOffscreenCulling(args, util) {
+            const state = getState(util.target);
+            const enabled = Scratch.Cast.toString(args.ENABLED).toLowerCase() === 'on';
+            if (state.cullOffscreen === enabled) return;
+            state.cullOffscreen = enabled;
+            state.cullRegion = null;
+            if (enabled) ensurePreDrawHook();
+            schedulePaint(util.target, state);
+        }
+
+        setEmojiMode(args, util) {
+            const state = getState(util.target);
+            const mode = Scratch.Cast.toString(args.MODE).toLowerCase() === 'native' ? 2 : 1;
+            if (state.emojiMode === mode) return;
+            state.emojiMode = mode;
+            schedulePaint(util.target, state);
+        }
+
         setGrowDownwardOnly(args, util) {
             const state = getState(util.target);
             const growDownwardOnly = Scratch.Cast.toString(args.ENABLED).toLowerCase() === 'on';
@@ -7129,10 +8195,20 @@ self.onmessage = async (event) => {
             state.typingSpeeds[group] = Math.max(0, Scratch.Cast.toNumber(args.SECONDS));
         }
 
+        setAllTypingSpeeds(args, util) {
+            const state = getState(util.target);
+            const seconds = Math.max(0, Scratch.Cast.toNumber(args.SECONDS));
+            for (const group in state.typingSpeeds) {
+                if (_hasOwn.call(state.typingSpeeds, group)) {
+                    state.typingSpeeds[group] = seconds;
+                }
+            }
+        }
+
         setCustomTypingSpeed(args, util) {
             const state = getState(util.target);
             const delay = Math.max(0, Scratch.Cast.toNumber(args.SECONDS));
-            for (const char of Array.from(Scratch.Cast.toString(args.CHARS))) {
+            for (const char of splitGraphemes(Scratch.Cast.toString(args.CHARS))) {
                 state.customTypingSpeeds[char] = delay;
             }
         }
@@ -7203,7 +8279,7 @@ self.onmessage = async (event) => {
 
         setTextShadowOpacity(args, util) {
             const state = getState(util.target);
-            state.textShadow.opacity = Math.max(0, Math.min(100, Scratch.Cast.toNumber(args.PCT)));
+            state.textShadow.opacity = clampPercent(Scratch.Cast.toNumber(args.PCT));
             schedulePaint(util.target, state);
         }
 
@@ -7236,7 +8312,7 @@ self.onmessage = async (event) => {
 
         setTextBackgroundOpacity(args, util) {
             const state = getState(util.target);
-            state.textBackground.opacity = Math.max(0, Math.min(100, Scratch.Cast.toNumber(args.PCT)));
+            state.textBackground.opacity = clampPercent(Scratch.Cast.toNumber(args.PCT));
             schedulePaint(util.target, state);
         }
 
@@ -7268,13 +8344,40 @@ self.onmessage = async (event) => {
 
         setTextBorderOpacity(args, util) {
             const state = getState(util.target);
-            state.textBorder.opacity = Math.max(0, Math.min(100, Scratch.Cast.toNumber(args.PCT)));
+            state.textBorder.opacity = clampPercent(Scratch.Cast.toNumber(args.PCT));
             schedulePaint(util.target, state);
         }
 
         setTextBorderSize(args, util) {
             const state = getState(util.target);
             state.textBorder.size = Math.max(0, Scratch.Cast.toNumber(args.SIZE));
+            schedulePaint(util.target, state);
+        }
+
+        setBackgroundBorder(args, util) {
+            const state = getState(util.target);
+            const color = Scratch.Cast.toString(args.COLOR);
+            const size = Math.max(0, Scratch.Cast.toNumber(args.SIZE));
+            state.textBackgroundBorder.color = color;
+            state.textBackgroundBorder.size = size;
+            schedulePaint(util.target, state);
+        }
+
+        setBackgroundBorderColor(args, util) {
+            const state = getState(util.target);
+            state.textBackgroundBorder.color = Scratch.Cast.toString(args.COLOR);
+            schedulePaint(util.target, state);
+        }
+
+        setBackgroundBorderSize(args, util) {
+            const state = getState(util.target);
+            state.textBackgroundBorder.size = Math.max(0, Scratch.Cast.toNumber(args.SIZE));
+            schedulePaint(util.target, state);
+        }
+
+        setBackgroundBorderRoundness(args, util) {
+            const state = getState(util.target);
+            state.textBackgroundBorder.roundness = clampPercent(Scratch.Cast.toNumber(args.ROUNDNESS));
             schedulePaint(util.target, state);
         }
 
@@ -7470,7 +8573,7 @@ self.onmessage = async (event) => {
         setCharOpacity(args, util) {
             const state = getState(util.target);
             const idx = Scratch.Cast.toNumber(args.INDEX) - 1;
-            const opacity = Math.max(0, Math.min(100, Scratch.Cast.toNumber(args.PCT))) / 100;
+            const opacity = clampPercentToUnit(Scratch.Cast.toNumber(args.PCT));
             const exists = !!state.charOverrides[idx];
             const o = getCharOverride(state, idx);
             if (exists && o.opacity === opacity) return;
@@ -7501,6 +8604,23 @@ self.onmessage = async (event) => {
             schedulePaint(util.target, state);
         }
 
+        setCharEffect(args, util) {
+            const state = getState(util.target);
+            const idx = Scratch.Cast.toNumber(args.INDEX) - 1;
+            const name = normalizeEffectName(args.EFFECT);
+            if (!name) return;
+            const amount = Scratch.Cast.toNumber(args.VALUE);
+            if (!Number.isFinite(amount)) return;
+            const effects = state.charEffects || (state.charEffects = {});
+            const current = effects[idx];
+            if (current && _hasOwn.call(current, name) && current[name] === amount) return;
+            const next = Object.assign({}, current);
+            next[name] = amount;
+            effects[idx] = next;
+            state.charTransformsVersion++;
+            schedulePaint(util.target, state);
+        }
+
         setCharScale(args, util) {
             const state = getState(util.target);
             const idx = Scratch.Cast.toNumber(args.INDEX) - 1;
@@ -7522,7 +8642,7 @@ self.onmessage = async (event) => {
             const validProps = ['x', 'y', 'rotation', 'opacity', 'scale'];
             if (!validProps.includes(property)) return;
             let targetValue = Scratch.Cast.toNumber(args.VALUE);
-            if (property === 'opacity') targetValue = Math.max(0, Math.min(100, targetValue)) / 100;
+            if (property === 'opacity') targetValue = clampPercentToUnit(targetValue);
             if (property === 'scale') targetValue = Math.max(0, targetValue) / 100;
             const duration = Math.max(0, Scratch.Cast.toNumber(args.SECS));
             const easingName = Scratch.Cast.toString(args.EASING).toLowerCase();
@@ -7571,7 +8691,7 @@ self.onmessage = async (event) => {
                     return;
                 }
                 let targetValue = Scratch.Cast.toNumber(args.VALUE);
-                if (property === 'opacity') targetValue = Math.max(0, Math.min(100, targetValue)) / 100;
+                if (property === 'opacity') targetValue = clampPercentToUnit(targetValue);
                 if (property === 'scale') targetValue = Math.max(0, targetValue) / 100;
                 const duration = Math.max(0, Scratch.Cast.toNumber(args.SECS));
                 const easingName = Scratch.Cast.toString(args.EASING).toLowerCase();
@@ -7635,8 +8755,10 @@ self.onmessage = async (event) => {
             const state = getState(util.target);
             const idx = Scratch.Cast.toNumber(args.INDEX) - 1;
             this.stopCharAnimations(args, util);
-            if (state.charOverrides[idx]) {
+            const hasEffects = !!state.charEffects && !!state.charEffects[idx];
+            if (state.charOverrides[idx] || hasEffects) {
                 delete state.charOverrides[idx];
+                if (hasEffects) delete state.charEffects[idx];
                 state.charOverridesVersion++;
                 state.charTransformsVersion++;
                 schedulePaint(util.target, state);
@@ -7647,8 +8769,10 @@ self.onmessage = async (event) => {
             const state = getState(util.target);
             const target = util.target;
             clearCharAnimationsForTarget(target.id);
-            if (Object.keys(state.charOverrides).length) {
+            const hasEffects = !!state.charEffects && Object.keys(state.charEffects).length > 0;
+            if (Object.keys(state.charOverrides).length || hasEffects) {
                 state.charOverrides = {};
+                state.charEffects = {};
                 state.charOverridesVersion++;
                 state.charTransformsVersion++;
                 schedulePaint(util.target, state);
@@ -7730,7 +8854,7 @@ self.onmessage = async (event) => {
                     y: existing ? existing.y : 0,
                     zoom: existing ? existing.zoom : 100,
                     rotation: existing ? existing.rotation : 0,
-                    direction: existing ? existing.direction : WIPE_DIRECTION_BOTTOM_UP,
+                    direction: existing ? existing.direction : wipeDirectionBottomUp,
                     seamless: existing ? existing.seamless : false
                 });
                 paintNeeded = true;
@@ -7899,7 +9023,7 @@ self.onmessage = async (event) => {
                 start,
                 end
             } = indexRange(Scratch.Cast.toNumber(args.START), Scratch.Cast.toNumber(args.END));
-            const direction = Scratch.Cast.toString(args.DIRECTION) || WIPE_DIRECTION_BOTTOM_UP;
+            const direction = Scratch.Cast.toString(args.DIRECTION) || wipeDirectionBottomUp;
             let changed = false;
             for (let idx = start; idx <= end; idx++) {
                 const existing = state.charMasks[idx];
@@ -7987,6 +9111,16 @@ self.onmessage = async (event) => {
             return plain[idx] || '';
         }
 
+        getCharDimension(args, util) {
+            const state = getState(util.target);
+            flushRenderIfDirty(util.target);
+            const idx = Scratch.Cast.toNumber(args.INDEX) - 1;
+            const box = state.charBoxes[idx];
+            if (!box) return 0;
+            const dimension = Scratch.Cast.toString(args.DIMENSION).toLowerCase();
+            return dimension === 'height' ? box.height : box.width;
+        }
+
         getCharCount(args, util) {
             const state = getState(util.target);
             return stripMarkup(state.rawText).length;
@@ -8029,9 +9163,27 @@ self.onmessage = async (event) => {
                 .map(c => c.trim())
                 .filter(c => c.length > 0);
             if (colors.length < 2) return text;
-            const angle = Scratch.Cast.toNumber(args.ANGLE) || 0;
+            const angle = Scratch.Cast.toNumber(args.ANGLE);
             const type = normalizeGradientType(args.TYPE);
             return `[gradient=${colors.join(',')}|${angle}|${type}]${text}[/gradient]`;
+        }
+
+        shadowMarkup(args) {
+            const text = Scratch.Cast.toString(args.TEXT);
+            const color = Scratch.Cast.toString(args.COLOR);
+            const opacity = clampPercent(Scratch.Cast.toNumber(args.OPACITY));
+            const blur = Math.max(0, Scratch.Cast.toNumber(args.BLUR));
+            const offsetX = Scratch.Cast.toNumber(args.OFFSET_X);
+            const offsetY = Scratch.Cast.toNumber(args.OFFSET_Y);
+            return `[shadow=${color}|${opacity}|${blur}|${offsetX}|${offsetY}]${text}[/shadow]`;
+        }
+
+        borderMarkup(args) {
+            const text = Scratch.Cast.toString(args.TEXT);
+            const color = Scratch.Cast.toString(args.COLOR);
+            const opacity = clampPercent(Scratch.Cast.toNumber(args.OPACITY));
+            const size = Math.max(0, Scratch.Cast.toNumber(args.SIZE));
+            return `[border=${color}|${opacity}|${size}]${text}[/border]`;
         }
 
         styleMarkup(args) {
@@ -8052,10 +9204,39 @@ self.onmessage = async (event) => {
             return `[size=${size}]${text}[/size]`;
         }
 
+        blurMarkup(args) {
+            const text = Scratch.Cast.toString(args.TEXT);
+            const intensity = Math.min(100, Math.max(0, Scratch.Cast.toNumber(args.INTENSITY)));
+            return `[blur=${intensity}]${text}[/blur]`;
+        }
+
+        effectMarkup(args) {
+            const text = Scratch.Cast.toString(args.TEXT);
+            const name = normalizeEffectName(args.EFFECT);
+            const amount = Scratch.Cast.toNumber(args.VALUE);
+            if (!name || !Number.isFinite(amount) || amount === 0) return text;
+            return `[effect=${name}|${amount}]${text}[/effect]`;
+        }
+
+        layerMarkup(args) {
+            const text = Scratch.Cast.toString(args.TEXT);
+            const layer = parseLayerValue(Scratch.Cast.toNumber(args.LAYER), 0);
+            return `[layer=${layer}]${text}[/layer]`;
+        }
+
+        perspectiveMarkup(args) {
+            const text = Scratch.Cast.toString(args.TEXT);
+            const x = Scratch.Cast.toNumber(args.X);
+            const y = Scratch.Cast.toNumber(args.Y);
+            const rotation = Scratch.Cast.toNumber(args.ROTATION);
+            const scale = Scratch.Cast.toNumber(args.SCALE);
+            return `[perspective=${x}|${y}|${rotation}|${scale}]${text}[/perspective]`;
+        }
+
         fontMarkup(args) {
             const text = Scratch.Cast.toString(args.TEXT);
             const requested = Scratch.Cast.toString(args.FONT);
-            const font = requested === RANDOM_ID ? randomFontOtherThan(RANDOM_ID) : requested;
+            const font = requested === randomId ? randomFontOtherThan(randomId) : requested;
             return `[font=${font}]${text}[/font]`;
         }
 

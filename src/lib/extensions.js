@@ -53,6 +53,7 @@ export default [
         isGitHub: true,
         creator: "Gen1xLol",
         tags: ["new"],
+        notes: "New thumbnail by CubeyCreator",
     },
     {
         name: "Boxed Physics",
@@ -110,7 +111,7 @@ export default [
         creator: "AndrewScripter587",
         creatorAlias: "AndrewGaming587",
         isGitHub: true,
-        tags: ["customtype", "data", "utility", "new", "large"],
+        tags: ["type", "data", "utility", "new", "large"],
     },
     {
         name: "Extra Timers",
@@ -189,14 +190,6 @@ export default [
         isGitHub: true,
     },
     {
-        name: "Mathematics",
-        description: "Complicated maths extension for nerds.",
-        code: "jwklong/mathematics.js",
-        banner: "jwklong/mathematics.avif",
-        creator: "jwklong",
-        isGitHub: true,
-    },
-    {
         name: "Big Decimal",
         description: "High precision operations. (Support decimals)",
         code: "qxsck/big-decimal.js",
@@ -212,7 +205,7 @@ export default [
         documentation: "DateFormatV2",
         creator: "ddededodediamante",
         isGitHub: true,
-        tags: ["customtype", "utility", "small", "data", "time", "text"],
+        tags: ["type", "utility", "small", "data", "time", "text"],
     },
     {
         name: "Yet Another String Extension",
@@ -230,7 +223,7 @@ export default [
         banner: "DogeisCut/dogeiscutRegularExpressions.svg",
         creator: "DogeisCut",
         isGitHub: true,
-        tags: ["customtype", "regex", "text", "utility"],
+        tags: ["type", "regex", "text", "utility"],
     },
     {
         name: "Sets",
@@ -239,7 +232,7 @@ export default [
         banner: "DogeisCut/dogeiscutSet.svg",
         creator: "DogeisCut",
         isGitHub: true,
-        tags: ["customtype", "sets", "data", "utility"],
+        tags: ["type", "sets", "data", "utility"],
     },
     {
         name: "Iterators",
@@ -249,7 +242,7 @@ export default [
         creator: "Dicuo",
         creatorAlias: "Div",
         isGitHub: true,
-        tags: ["customtype", "iterators", "data", "utility", "builder"]
+        tags: ["type", "iterators", "data", "utility", "builder"]
     },
     {
         name: "Algebraic Effects",
@@ -269,7 +262,7 @@ export default [
         creator: "Dicuo",
         creatorAlias: "Div",
         isGitHub: true,
-        tags: ["new", "customtype", "3D", "data", "utility", "math"]
+        tags: ["new", "type", "3D", "data", "utility", "math"]
     },
     {
         name: "Blobs",
@@ -388,7 +381,7 @@ export default [
         banner: "DogeisCut/BeepBoxPlayer.svg",
         creator: "DogeisCut",
         isGitHub: true,
-        tags: ["api", "music", "sounds"],
+        tags: ["api", "sound"],
     },
     {
         name: "Update File (Direct Access)",
@@ -561,15 +554,6 @@ export default [
         banner: "MrRedstonia/counterplusplus.avif",
         creator: "MrRedstonia",
         isGitHub: true,
-    },
-    {
-        name: "How many lines?",
-        description: "Blocks to determine the amount of new lines in a piece of text.",
-        code: "Monochromasity/howmanylines.js",
-        banner: "Monochromasity/placeholder-howmanylines.avif",
-        creator: "Monochromasity",
-        isGitHub: true,
-        tags: ["small"],
     },
     {
         name: "Paint Utils",
